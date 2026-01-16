@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Amazon Review Synthesizer</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-logo">
+        <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+          <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </svg>
+        <span class="header-title">Review Synthesizer</span>
+      </div>
+      <span class="status-indicator" id="statusIndicator">Ready</span>
+    </header>
+
+    <!-- Error State -->
+    <div id="errorState" class="state-card error-card hidden">
+      <div class="error-icon">⚠️</div>
+      <div class="error-content">
+        <h4 id="errorTitle">Page Not Supported</h4>
+        <p id="errorMessage">Navigate to an active Amazon product detail page to synthesize customer reviews.</p>
+      </div>
+    </div>
+
+    <!-- Ready / Idle State -->
+    <div id="readyState" class="state-card ready-card">
+      <div class="product-preview">
+        <span class="preview-tag">Detected Product</span>
+        <h3 id="productTitlePreview" class="preview-title">Detecting page...</h3>
+      </div>
+      <button id="analyzeBtn" class="btn primary-btn">
+        <span class="btn-text">Analyze Reviews</span>
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+          <polyline points="12 5 19 12 12 19"></polyline>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Loading Skeleton State -->
+    <div id="loadingState" class="state-card loading-card hidden">
+      <div class="skeleton-header">
+        <div class="skeleton skeleton-title"></div>
+        <div class="skeleton skeleton-badge"></div>
+      </div>
+      <div class="skeleton skeleton-line"></div>
+      <div class="skeleton skeleton-line short"></div>
+      <div class="skeleton-grid">
+        <div class="skeleton skeleton-box"></div>
+        <div class="skeleton skeleton-box"></div>
+      </div>
+      <p class="loading-caption">Extracting reviews & synthesizing via AI model...</p>
+    </div>
+
+    <!-- Success State -->
+    <div id="successState" class="state-card success-card hidden">
+      <!-- Product & Reliability Score -->
+      <div class="product-header">
+        <div class="product-info">
+          <span class="section-label">Product Analysis</span>
+          <h2 id="resProductName" class="product-name">Product Name</h2>
+        </div>
+        <div class="score-container">
+          <div id="resScoreBadge" class="score-badge">
+            <span id="resScoreValue" class="score-num">8.5</span>
+            <span class="score-max">/10</span>
+          </div>
+          <span class="score-subtext">Reliability</span>
+        </div>
+      </div>
+
+      <!-- Pros & Cons Matrix -->
+      <div class="matrix-grid">
+        <div class="matrix-card pros-card">
+          <div class="matrix-header">
+            <span class="matrix-icon">✓</span>
+            <h4>Pros</h4>
+          </div>
+          <ul id="resProsList" class="matrix-list"></ul>
+        </div>
+        <div class="matrix-card cons-card">
+          <div class="matrix-header">
+            <span class="matrix-icon">✕</span>
+            <h4>Cons</h4>
+          </div>
+          <ul id="resConsList" class="matrix-list"></ul>
+        </div>
+      </div>
+
+      <!-- Positive Highlights -->
+      <div class="section-card">
+        <div class="section-header positive-header">
+          <span class="dot green-dot"></span>
+          <h4>Positive Reviews</h4>
+        </div>
+        <ul id="resPositivesList" class="bullet-list"></ul>
+      </div>
+
+      <!-- Negative Highlights & Defects -->
+      <div class="section-card">
+        <div class="section-header negative-header">
+          <span class="dot red-dot"></span>
+          <h4>Negative Reviews & Flaws</h4>
+        </div>
+        <ul id="resNegativesList" class="bullet-list"></ul>
+      </div>
+
+      <!-- Re-analyze button -->
+      <div class="footer-actions">
+        <button id="reanalyzeBtn" class="btn secondary-btn">Re-analyze Reviews</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Amazon Review Synthesizer",
+  "version": "1.0.0",
+  "description": "Synthesizes verified Amazon reviews into an objective reliability score, pros/cons matrix, and key takeaways.",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.amazon.com/*",
+    "*://*.amazon.ca/*",
+    "*://*.amazon.co.uk/*",
+    "*://*.amazon.de/*",
+    "*://*.amazon.co.jp/*",
+    "*://*.amazon.*/*",
+    "http://127.0.0.1:8000/*",
+    "http://localhost:8000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Amazon Review Synthesizer",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.amazon.com/dp/*",
+        "*://*.amazon.com/gp/product/*",
+        "*://*.amazon.ca/dp/*",
+        "*://*.amazon.ca/gp/product/*",
+        "*://*.amazon.co.uk/dp/*",
+        "*://*.amazon.co.uk/gp/product/*",
+        "*://*.amazon.de/dp/*",
+        "*://*.amazon.de/gp/product/*",
+        "*://*.amazon.*/dp/*",
+        "*://*.amazon.*/gp/product/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
