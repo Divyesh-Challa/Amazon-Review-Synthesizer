@@ -1,71 +1,68 @@
-# Amazon Review Synthesizer
+# 🛍️ Amazon Review Synthesizer
 
-An AI-powered Chrome Extension (Manifest V3) backed by a FastAPI microservice that extracts verified customer reviews from Amazon product detail pages, analyzes authentic product feedback, and outputs an objective breakdown:
-- **Normalized Reliability Score** (0–10)
-- **High-level Pros & Cons Matrix**
-- **Bulleted Positive Customer Highlights**
-- **Bulleted Defects, Failures & Negative Callouts**
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Chrome Extension](https://img.shields.io/badge/Chrome_Extension-Manifest_V3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/intro/)
+[![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+An intelligent, AI-powered browser extension and microservice that transforms cluttered, sponsored, and noisy Amazon customer reviews into objective product intelligence. 
+
+In under 2.5 seconds, it filters out logistics complaints and promotional bias, outputting an actionable breakdown: a **Normalized Reliability Score (0–10)**, high-level **Pros & Cons**, and verified **Defect & Highlight Callouts**.
 
 ---
 
-## Architecture & Project Structure
+## 🎯 The Problem
+
+Online shoppers face decision fatigue and deceptive review signals on major e-commerce platforms:
+- **Review Noise**: Sifting through hundreds of promotional five-star ratings and one-star delivery complaints obscures actual product durability.
+- **Logistics Bias**: Negative reviews often penalize items for carrier delays or crushed outer boxes rather than product defects.
+- **Search Overwhelm**: Comparing multiple candidate listings on a crowded search results page is manual, tedious, and error-prone.
+
+**Amazon Review Synthesizer** automates review extraction and synthesis, applying strict evaluation guardrails so buyers can validate products in seconds.
+
+---
+
+## ✨ Features
+
+- **⚡ Automatic On-Page Detection**: Sleek, non-intrusive on-page drawer automatically detects Amazon product and search pages—no manual toolbar clicking required.
+- **📊 Normalized Reliability Score**: Evaluates genuine customer satisfaction and defect-free rates on an objective 0.0 to 10.0 scale.
+- **⚖️ Pros & Cons Matrix**: Clean, side-by-side view summarizing functional strengths, material quality, and real-world trade-offs.
+- **🛡️ Intelligent Guardrails**: Disregards shipping delays and carrier issues; prioritizes recurring hardware, battery, or build quality flaws.
+- **🔍 Search Page Buying Guide**: Automatically compares top listings across search queries (e.g., *"mechanical keyboard"*, *"speakers"*), highlighting top-recommended picks with instant buyer verdicts.
+- **🔒 Privacy & Sanitization**: Strips personal identifiable information (PII), tracking URLs, emojis, and marketing noise before analysis.
+
+---
+
+## ⚙️ How It Works
 
 ```
-amazon-review-synthesizer/
-├── README.md
-├── .gitignore
-├── backend/
-│   ├── requirements.txt
-│   ├── .env.example
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py            # FastAPI service & CORS middleware
-│   │   ├── config.py          # Environment settings & model parameters
-│   │   ├── schemas.py         # Pydantic request/response data contracts
-│   │   ├── sanitizer.py       # PII/emoji stripping, deduplication & truncation
-│   │   └── synthesizer.py     # Gemini 1.5 Flash structured output + Mock mode
-│   └── tests/
-│       ├── __init__.py
-│       ├── sample_reviews.json # Realistic test review fixtures
-│       ├── test_api.py         # Full test suite (requires dependencies)
-│       └── test_sanitizer_standalone.py # Zero-dependency standard library test
-└── extension/
-    ├── manifest.json          # Chrome Manifest V3 declaration
-    ├── icons/                 # Extension icons (16px, 48px, 128px)
-    ├── content.js             # Amazon PDP scraping & empty-state detection
-    ├── popup.html             # Slate dark mode (#0f172a) UI layout
-    ├── popup.css              # Styling, score badge styling & skeleton loader
-    └── popup.js               # State management & backend API communication
+[ Amazon Webpage ] ──> [ Content Script ] ──> [ Background Worker ] ──> [ FastAPI Microservice ]
+   (PDP / Search)      (Scrapes & Cleans)     (Bypasses Mixed-CSP)         (Sanitizes & Truncates)
+                                                                                   │
+                                                                                   ▼
+[ On-Page Dark UI ] <─────────────────────────────────────────────────────── [ LLM Synthesis ]
+(Score, Matrix, Bullets)                                                     (Strict JSON Schema)
 ```
 
----
-
-## Free LLM Provider Setup
-
-You indicated a preference for a provider offering free tier services. We recommend **Google Gemini 1.5 Flash**:
-- **Free Quota**: 15 Requests Per Minute (RPM), 1,500 Requests Per Day (RPD), and 1 Million Tokens Per Minute (TPM).
-- **Cost**: 100% Free with **no credit card required**.
-- **Latency**: Sub-second inference time, satisfying the $< 2.5$s PRD latency target.
-
-### Getting Your Free API Key
-1. Visit [Google AI Studio](https://aistudio.google.com/).
-2. Sign in with your Google account.
-3. Click **"Get API key"** and create a new key.
-4. Copy your key into `backend/.env`:
-   ```bash
-   GEMINI_API_KEY=your_copied_api_key_here
-   ```
-
-*Note: If no API key is provided, the backend automatically uses an **offline heuristic mock mode** so you can develop and test the extension immediately without paying or setting up keys!*
+1. **Client Extraction**: Content scripts extract product titles, verified customer review nodes, star ratings, and metadata from Amazon listings.
+2. **Sanitization**: Backend sanitizers deduplicate repetitive text, redact emails/phone numbers, and normalize whitespace.
+3. **Structured LLM Inference**: An LLM pipeline evaluates inputs under strict system constraints, enforcing a deterministic JSON schema.
+4. **Client Presentation**: Results render instantly in a high-contrast slate dark theme (`#0f172a`) with smooth animations and skeleton loaders.
 
 ---
 
-## 🚀 Quickstart Guide
+## 🚀 Getting Started
 
-### 1. Start the Backend API
+### Prerequisites
+- **Python 3.9+**
+- **Google Chrome** (or any Chromium-based browser)
+
+### 1. Backend Service Setup
 
 ```bash
-cd backend
+# Clone the repository
+git clone https://github.com/Divyesh-Challa/amazon-review-synthesizer.git
+cd amazon-review-synthesizer/backend
 
 # Create and activate virtual environment
 python3 -m venv venv
@@ -76,29 +73,46 @@ pip install -r requirements.txt
 
 # Configure environment variables
 cp .env.example .env
-# (Optional) Edit .env with your free GEMINI_API_KEY
 
-# Run tests
-python3 -m pytest tests/test_api.py
-
-# Launch FastAPI server
+# Launch the FastAPI microservice
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-The API will be live at `http://127.0.0.1:8000`. You can test the interactive documentation at `http://127.0.0.1:8000/docs`.
+The API will be live at `http://127.0.0.1:8000`. Interactive OpenAPI documentation is available at `http://127.0.0.1:8000/docs`.
 
-### 2. Load the Chrome Extension
+### 2. Chrome Extension Installation
 
 1. Open Google Chrome and navigate to `chrome://extensions/`.
-2. Toggle on **"Developer mode"** in the top-right corner.
-3. Click **"Load unpacked"**.
-4. Select the `extension/` directory from this project:
-   `/Users/divyeshchalla/Documents/Projects/amazon-review-synthesizer/extension`
-5. The **Review Synthesizer** icon will appear in your Chrome toolbar.
+2. Toggle on **Developer mode** in the top-right corner.
+3. Click **Load unpacked**.
+4. Select the `extension/` directory from this repository.
+5. The **Review Synthesizer** extension is now active.
 
-### 3. Usage
+---
 
-1. Navigate to any Amazon product page (e.g. `amazon.com/dp/...` or `amazon.ca/dp/...`).
-2. Click the **Review Synthesizer** extension icon in your browser toolbar.
-3. Click **"Analyze Reviews"**.
-4. Within $< 2.5$ seconds, view the normalized score, pros & cons, and key positive and negative insights!
+## 💻 Usage
+
+- **Product Pages**: Navigate to any Amazon product listing (e.g., `/dp/...`). The synthesizer panel will automatically appear on the right with the reliability score, pros & cons, and review highlights.
+- **Search Pages**: Search for any product category (e.g., *"headphones"* or *"ergonomic chair"*). The extension automatically aggregates top search results into a curated buying guide.
+- **Toolbar Popup**: Click the extension icon in your browser toolbar anytime to inspect or re-trigger synthesis manually.
+
+---
+
+## 🔧 Configuration
+
+All backend parameters can be customized via `.env`:
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `HOST` | `127.0.0.1` | API host address |
+| `PORT` | `8000` | API port |
+| `LLM_PROVIDER` | `gemini` | Synthesis engine (`gemini` or `mock`) |
+| `GEMINI_API_KEY` | `""` | API key for Gemini inference models |
+| `MAX_REVIEWS` | `15` | Maximum review sample size per listing |
+| `MAX_CHARS_PER_REVIEW` | `600` | Maximum character cap per review |
+
+---
+
+## 📜 License
+
+This project is licensed under the [MIT License](LICENSE).
