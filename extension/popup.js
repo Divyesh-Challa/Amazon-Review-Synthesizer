@@ -46,7 +46,7 @@ function showState(state) {
     statusIndicator.className = "status-indicator live";
   } else if (state === "error") {
     errorState.classList.remove("hidden");
-    statusIndicator.textContent = "Error";
+    statusIndicator.textContent = "Notice";
     statusIndicator.className = "status-indicator";
   }
 }
@@ -62,25 +62,49 @@ async function getActiveTab() {
   return tab;
 }
 
-function isAmazonUrl(url) {
+function isAmazonDomain(url) {
   if (!url) return false;
-  return /\.(amazon\.[a-z\.]+)\/(dp|gp\/product)\//i.test(url);
+  return /amazon\.(com|ca|co\.uk|de|fr|it|es|co\.jp|in|com\.au|com\.mx)/i.test(url);
+}
+
+function isAmazonProductPage(url) {
+  if (!isAmazonDomain(url)) return false;
+  return /\/(dp|gp\/product)\/[A-Z0-9]+/i.test(url);
+}
+
+function isAmazonSearchPage(url) {
+  if (!isAmazonDomain(url)) return false;
+  return /\/s(\?|\/)/i.test(url);
 }
 
 // Initialize popup on open
 document.addEventListener("DOMContentLoaded", async () => {
   try {
     const tab = await getActiveTab();
-    if (!tab || !tab.url || !isAmazonUrl(tab.url)) {
+    if (!tab || !tab.url) {
+      showError("Browser Error", "Unable to detect active tab URL.");
+      return;
+    }
+
+    if (isAmazonSearchPage(tab.url)) {
       showError(
-        "Not an Amazon Product Page",
-        "Please navigate to an Amazon product detail page (e.g. /dp/ or /gp/product/) to use this extension."
+        "Search Results Page Detected",
+        "You are currently viewing Amazon search results. Please click into any specific product (such as one of the keyboards on the page) to open its product page, then click this extension again to synthesize its reviews."
       );
       return;
     }
 
-    // Try reading title from tab or content script
-    productTitlePreview.textContent = tab.title ? tab.title.split(":")[0].trim() : "Amazon Product";
+    if (!isAmazonProductPage(tab.url)) {
+      showError(
+        "Not an Amazon Product Page",
+        "Please navigate to an individual Amazon product detail page (e.g. /dp/... or /gp/product/...) to synthesize its reviews."
+      );
+      return;
+    }
+
+    // Try reading title from tab or clean up preview
+    const cleanTitle = tab.title ? tab.title.replace(/amazon(\.ca|\.com)?\s*:\s*/i, "").split(":")[0].trim() : "Amazon Product";
+    productTitlePreview.textContent = cleanTitle;
     showState("ready");
   } catch (err) {
     showError("Extension Initialization Error", err.message);
@@ -112,7 +136,7 @@ async function runAnalysis() {
 
     if (!extractionResponse || !extractionResponse.success) {
       const msg = extractionResponse ? extractionResponse.message : "Failed to communicate with page.";
-      showError("Extraction Failed", msg);
+      showError("Extraction Notice", msg);
       return;
     }
 
@@ -121,7 +145,7 @@ async function runAnalysis() {
     if (emptyState || !reviews || reviews.length === 0) {
       showError(
         "No Reviews Found",
-        "This listing does not appear to have verified customer reviews yet."
+        "This product listing does not appear to have customer review text available on the page."
       );
       return;
     }
@@ -148,8 +172,8 @@ async function runAnalysis() {
       apiData = await response.json();
     } catch (fetchErr) {
       showError(
-        "Backend Connection Offline",
-        `Could not reach synthesis API at ${API_ENDPOINT}. Make sure the FastAPI server is running ('python3 -m uvicorn app.main:app').`
+        "Backend Service Offline",
+        `Could not connect to ${API_ENDPOINT}. Please make sure the FastAPI backend is running (run 'uvicorn app.main:app --reload' in the backend directory).`
       );
       return;
     }

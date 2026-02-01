@@ -5,7 +5,8 @@
 
 function isAmazonPDP() {
   const url = window.location.href;
-  return /\/(dp|gp\/product)\/[A-Z0-9]{10}/i.test(url);
+  return /amazon\.(com|ca|co\.uk|de|fr|it|es|co\.jp|in|com\.au|com\.mx)/i.test(url) && 
+         /\/(dp|gp\/product)\/[A-Z0-9]+/i.test(url);
 }
 
 function extractProductTitle() {
