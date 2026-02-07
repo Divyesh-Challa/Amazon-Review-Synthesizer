@@ -2,8 +2,6 @@
  * Amazon Review Synthesizer - Popup Controller
  */
 
-const API_ENDPOINT = "http://127.0.0.1:8000/api/v1/analyze";
-
 // Elements
 const readyState = document.getElementById("readyState");
 const loadingState = document.getElementById("loadingState");
@@ -150,37 +148,29 @@ async function runAnalysis() {
       return;
     }
 
-    // Transmit review payload to backend
-    let apiData;
-    try {
-      const response = await fetch(API_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
+    // Transmit review payload to backend via background service worker
+    chrome.runtime.sendMessage(
+      {
+        action: "ANALYZE_REVIEWS",
+        payload: {
           product_title: title,
           reviews: reviews
-        })
-      });
+        }
+      },
+      (res) => {
+        if (!res || !res.success) {
+          const errDetail = res ? res.error : "Backend offline or unreachable.";
+          showError(
+            "Backend Service Offline",
+            `Could not connect to synthesis API. Please make sure the FastAPI backend is running ('uvicorn app.main:app --reload'). Error: ${errDetail}`
+          );
+          return;
+        }
 
-      if (!response.ok) {
-        const errorDetail = await response.text();
-        throw new Error(`Backend error (${response.status}): ${errorDetail}`);
+        renderResults(res.data);
+        showState("success");
       }
-
-      apiData = await response.json();
-    } catch (fetchErr) {
-      showError(
-        "Backend Service Offline",
-        `Could not connect to ${API_ENDPOINT}. Please make sure the FastAPI backend is running (run 'uvicorn app.main:app --reload' in the backend directory).`
-      );
-      return;
-    }
-
-    // Render results in success view
-    renderResults(apiData);
-    showState("success");
+    );
 
   } catch (err) {
     showError("Analysis Error", err.message || "An unexpected error occurred.");
