@@ -25,19 +25,19 @@
     <div id="errorState" class="state-card error-card hidden">
       <div class="error-icon">⚠️</div>
       <div class="error-content">
-        <h4 id="errorTitle">Page Not Supported</h4>
-        <p id="errorMessage">Navigate to an active Amazon product detail page to synthesize customer reviews.</p>
+        <h4 id="errorTitle">Notice</h4>
+        <p id="errorMessage">Navigate to an active Amazon page to use the synthesizer.</p>
       </div>
     </div>
 
     <!-- Ready / Idle State -->
     <div id="readyState" class="state-card ready-card">
       <div class="product-preview">
-        <span class="preview-tag">Detected Product</span>
+        <span class="preview-tag" id="previewLabel">Detected Page</span>
         <h3 id="productTitlePreview" class="preview-title">Detecting page...</h3>
       </div>
       <button id="analyzeBtn" class="btn primary-btn">
-        <span class="btn-text">Analyze Reviews</span>
+        <span class="btn-text" id="analyzeBtnText">Analyze Product</span>
         <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="5" y1="12" x2="19" y2="12"></line>
           <polyline points="12 5 19 12 12 19"></polyline>
@@ -57,12 +57,11 @@
         <div class="skeleton skeleton-box"></div>
         <div class="skeleton skeleton-box"></div>
       </div>
-      <p class="loading-caption">Extracting reviews & synthesizing via AI model...</p>
+      <p class="loading-caption" id="loadingCaption">Synthesizing verified reviews via AI backend...</p>
     </div>
 
-    <!-- Success State -->
-    <div id="successState" class="state-card success-card hidden">
-      <!-- Product & Reliability Score -->
+    <!-- Success State: Product Analysis -->
+    <div id="successProductState" class="state-card success-card hidden">
       <div class="product-header">
         <div class="product-info">
           <span class="section-label">Product Analysis</span>
@@ -77,7 +76,6 @@
         </div>
       </div>
 
-      <!-- Pros & Cons Matrix -->
       <div class="matrix-grid">
         <div class="matrix-card pros-card">
           <div class="matrix-header">
@@ -95,7 +93,6 @@
         </div>
       </div>
 
-      <!-- Positive Highlights -->
       <div class="section-card">
         <div class="section-header positive-header">
           <span class="dot green-dot"></span>
@@ -104,7 +101,6 @@
         <ul id="resPositivesList" class="bullet-list"></ul>
       </div>
 
-      <!-- Negative Highlights & Defects -->
       <div class="section-card">
         <div class="section-header negative-header">
           <span class="dot red-dot"></span>
@@ -113,9 +109,26 @@
         <ul id="resNegativesList" class="bullet-list"></ul>
       </div>
 
-      <!-- Re-analyze button -->
       <div class="footer-actions">
-        <button id="reanalyzeBtn" class="btn secondary-btn">Re-analyze Reviews</button>
+        <button id="reanalyzeProductBtn" class="btn secondary-btn">Re-analyze Reviews</button>
+      </div>
+    </div>
+
+    <!-- Success State: Search Analysis -->
+    <div id="successSearchState" class="state-card success-card hidden">
+      <div class="product-preview" style="border-color: #38bdf8;">
+        <span class="preview-tag">Buying Guide</span>
+        <p id="searchSummaryText" style="font-size:12px; color:#e2e8f0; line-height:1.4;"></p>
+      </div>
+
+      <div style="font-size:12px; font-weight:700; color:#cbd5e1; margin-top:4px;">
+        Top Recommended Picks
+      </div>
+
+      <div id="searchPicksContainer" style="display:flex; flex-direction:column; gap:10px;"></div>
+
+      <div class="footer-actions">
+        <button id="reanalyzeSearchBtn" class="btn secondary-btn">Re-analyze Search</button>
       </div>
     </div>
   </div>

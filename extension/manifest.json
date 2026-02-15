@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Amazon Review Synthesizer",
-  "version": "1.0.0",
-  "description": "Synthesizes verified Amazon reviews into an objective reliability score, pros/cons matrix, and key takeaways.",
+  "version": "1.2.0",
+  "description": "Automatically analyzes Amazon product reviews and search results with AI scores, pros/cons, and buying guides.",
   "permissions": [
     "activeTab",
     "scripting"
@@ -37,28 +37,17 @@
   "content_scripts": [
     {
       "matches": [
-        "*://*.amazon.com/dp/*",
-        "*://*.amazon.com/gp/product/*",
-        "*://*.amazon.ca/dp/*",
-        "*://*.amazon.ca/gp/product/*",
-        "*://*.amazon.co.uk/dp/*",
-        "*://*.amazon.co.uk/gp/product/*",
-        "*://*.amazon.de/dp/*",
-        "*://*.amazon.de/gp/product/*",
-        "*://*.amazon.fr/dp/*",
-        "*://*.amazon.fr/gp/product/*",
-        "*://*.amazon.it/dp/*",
-        "*://*.amazon.it/gp/product/*",
-        "*://*.amazon.es/dp/*",
-        "*://*.amazon.es/gp/product/*",
-        "*://*.amazon.co.jp/dp/*",
-        "*://*.amazon.co.jp/gp/product/*",
-        "*://*.amazon.in/dp/*",
-        "*://*.amazon.in/gp/product/*",
-        "*://*.amazon.com.au/dp/*",
-        "*://*.amazon.com.au/gp/product/*",
-        "*://*.amazon.com.mx/dp/*",
-        "*://*.amazon.com.mx/gp/product/*"
+        "*://*.amazon.com/*",
+        "*://*.amazon.ca/*",
+        "*://*.amazon.co.uk/*",
+        "*://*.amazon.de/*",
+        "*://*.amazon.fr/*",
+        "*://*.amazon.it/*",
+        "*://*.amazon.es/*",
+        "*://*.amazon.co.jp/*",
+        "*://*.amazon.in/*",
+        "*://*.amazon.com.au/*",
+        "*://*.amazon.com.mx/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"

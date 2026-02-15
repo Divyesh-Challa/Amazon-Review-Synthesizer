@@ -1,279 +1,403 @@
 /**
  * Amazon Review Synthesizer - Content Script
- * Scrapes product title and customer reviews from Amazon Product Detail Pages (PDP),
- * and provides an embedded on-page trigger button and slide-out synthesis panel.
+ * Automatically detects Amazon Product & Search pages, automatically opens on-page synthesis UI,
+ * and extracts verified customer reviews or search ranking data.
  */
 
-function isAmazonPDP() {
+// --- Page Detection ---
+function isAmazonProductPage() {
   const url = window.location.href;
-  return /amazon\.(com|ca|co\.uk|de|fr|it|es|co\.jp|in|com\.au|com\.mx)/i.test(url) && 
+  return /amazon\.(com|ca|co\.uk|de|fr|it|es|co\.jp|in|com\.au|com\.mx)/i.test(url) &&
          /\/(dp|gp\/product)\/[A-Z0-9]+/i.test(url);
 }
 
-function extractProductTitle() {
-  const titleEl = document.querySelector("#productTitle") || 
-                  document.querySelector("#title span") ||
-                  document.querySelector("h1.product-title-word-break");
-  return titleEl ? titleEl.textContent.trim() : document.title.replace(/amazon(\.com|\.ca)?\s*:/i, "").trim();
+function isAmazonSearchPage() {
+  const url = window.location.href;
+  return /amazon\.(com|ca|co\.uk|de|fr|it|es|co\.jp|in|com\.au|com\.mx)/i.test(url) &&
+         /\/s(\?|\/)|[?&]k=/i.test(url);
 }
 
-function extractReviews(maxCount = 20) {
+// --- Data Extraction: Product Page ---
+function extractASIN() {
+  const asinInput = document.getElementById("ASIN") || document.querySelector('input[name="ASIN"]');
+  if (asinInput && asinInput.value) return asinInput.value.trim();
+
+  const urlMatch = window.location.href.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i);
+  if (urlMatch) return urlMatch[1];
+
+  const anyAsin = document.querySelector("[data-asin]");
+  if (anyAsin && anyAsin.getAttribute("data-asin")) return anyAsin.getAttribute("data-asin");
+
+  return null;
+}
+
+function extractProductTitle() {
+  // Check standard span#productTitle
+  const titleEl = document.getElementById("productTitle");
+  if (titleEl && titleEl.textContent.trim()) {
+    const text = titleEl.textContent.trim();
+    if (text.toLowerCase() !== "amazon official") return text;
+  }
+
+  // Check H1 elements
+  const h1El = document.querySelector("h1#title") || 
+               document.querySelector("h1.product-title-word-break") ||
+               document.querySelector("#title h1") ||
+               document.querySelector("h1");
+  if (h1El && h1El.textContent.trim()) {
+    const text = h1El.textContent.trim();
+    if (text.toLowerCase() !== "amazon official" && text.length > 5) return text;
+  }
+
+  // Fallback to clean document.title
+  let docTitle = document.title || "";
+  docTitle = docTitle.replace(/amazon(\.ca|\.com)?\s*:\s*/i, "");
+  docTitle = docTitle.replace(/:\s*amazon(\.ca|\.com)?/i, "");
+  return docTitle.split(":")[0].trim() || "Amazon Product";
+}
+
+function extractReviewsFromDOM(maxCount = 20) {
   const reviews = [];
+
+  // Standard desktop review card selectors
   const reviewCards = document.querySelectorAll('div[data-hook="review"]');
-
-  if (reviewCards && reviewCards.length > 0) {
-    reviewCards.forEach((card) => {
-      if (reviews.length >= maxCount) return;
-
-      const bodyEl = card.querySelector('span[data-hook="review-body"]') || 
-                     card.querySelector('.review-text-content span') ||
-                     card.querySelector('.review-text');
-
-      if (!bodyEl) return;
+  reviewCards.forEach((card) => {
+    if (reviews.length >= maxCount) return;
+    const bodyEl = card.querySelector('span[data-hook="review-body"]') || 
+                   card.querySelector('.review-text-content span') ||
+                   card.querySelector('.review-text');
+    if (bodyEl) {
       const text = bodyEl.innerText.trim();
-      if (text.length > 10) {
-        reviews.push(text);
-      }
+      if (text.length > 15) reviews.push(text);
+    }
+  });
+
+  // Fallback: general review text containers
+  if (reviews.length === 0) {
+    document.querySelectorAll('.review-text-content, [data-hook="review-collapsed"]').forEach((el) => {
+      if (reviews.length >= maxCount) return;
+      const text = el.innerText.trim();
+      if (text.length > 15) reviews.push(text);
     });
   }
 
-  // Fallback: search general review text containers
-  if (reviews.length === 0) {
-    const fallbackBodies = document.querySelectorAll('.review-text-content');
-    fallbackBodies.forEach((el) => {
-      if (reviews.length >= maxCount) return;
-      const text = el.innerText.trim();
-      if (text.length > 10) {
-        reviews.push(text);
-      }
-    });
+  // Fallback 2: "Customers say" AI summary container on modern Amazon PDPs
+  const summaryEl = document.querySelector('[data-hook="cr-insights-widget"]') ||
+                    document.querySelector('#product-summary') ||
+                    document.querySelector('#cr-summarization-attributes-list');
+  if (summaryEl && summaryEl.innerText.trim().length > 20) {
+    reviews.unshift("Customer Consensus: " + summaryEl.innerText.trim());
   }
 
   return reviews;
 }
 
-// Handle messages from popup
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === "EXTRACT_REVIEWS") {
-    if (!isAmazonPDP()) {
-      sendResponse({
-        success: false,
-        error: "NOT_AMAZON_PDP",
-        message: "Please navigate to an Amazon product detail page."
-      });
-      return true;
+// --- Data Extraction: Search Page ---
+function extractSearchData() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const searchInput = document.querySelector("#twotabsearchtextbox");
+  const query = urlParams.get("k") || (searchInput ? searchInput.value : "") || "Products";
+
+  const productCards = document.querySelectorAll('div[data-component-type="s-search-result"]');
+  const products = [];
+
+  productCards.forEach((card) => {
+    if (products.length >= 8) return;
+
+    // Filter out sponsored ads if organic results are available
+    const isSponsored = card.querySelector('.puis-sponsored-label-text, .s-sponsored-label-text');
+    
+    const titleEl = card.querySelector('h2 a span') || 
+                    card.querySelector('h2 a.a-link-normal') || 
+                    card.querySelector('.a-text-normal');
+    if (!titleEl) return;
+    const title = titleEl.innerText.trim();
+    if (!title || title.length < 5) return;
+
+    const asin = card.getAttribute("data-asin") || "";
+
+    // Rating
+    const ratingEl = card.querySelector('.a-icon-alt');
+    let rating = 4.5;
+    if (ratingEl && ratingEl.innerText) {
+      const parsed = parseFloat(ratingEl.innerText.split(" ")[0]);
+      if (!isNaN(parsed)) rating = parsed;
     }
 
-    const title = extractProductTitle();
-    const reviews = extractReviews(20);
+    // Review count
+    const countEl = card.querySelector('span.a-size-base.s-underline-text') ||
+                    card.querySelector('a[href*="customerReviews"] span');
+    const review_count = countEl ? countEl.innerText.trim() : "100+";
 
+    // Price
+    const priceEl = card.querySelector('.a-price .a-offscreen') || 
+                    card.querySelector('.a-price-whole');
+    const price = priceEl ? priceEl.innerText.trim() : "See Price";
+
+    // Badges (e.g. Amazon's Choice, Best Seller)
+    const badgeEl = card.querySelector('.a-badge-text') || 
+                    card.querySelector('.s-coupon-highlight-color');
+    const badge = badgeEl ? badgeEl.innerText.trim() : (isSponsored ? "Featured" : "");
+
+    // Link
+    const linkEl = card.querySelector('h2 a');
+    const link = linkEl ? linkEl.href : "";
+
+    products.push({
+      title,
+      asin,
+      rating,
+      review_count,
+      price,
+      badge,
+      link
+    });
+  });
+
+  return { query, products };
+}
+
+// --- Listen to Popup Messages ---
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "EXTRACT_REVIEWS") {
+    if (!isAmazonProductPage()) {
+      sendResponse({ success: false, error: "NOT_AMAZON_PDP", message: "Not on a product detail page." });
+      return true;
+    }
+    const title = extractProductTitle();
+    const reviews = extractReviewsFromDOM(20);
+    const asin = extractASIN();
     sendResponse({
       success: true,
-      emptyState: reviews.length === 0,
       title: title,
       reviews: reviews,
-      count: reviews.length
+      asin: asin,
+      domain: window.location.hostname
     });
+    return true;
+  }
+
+  if (request.action === "EXTRACT_SEARCH") {
+    if (!isAmazonSearchPage()) {
+      sendResponse({ success: false, error: "NOT_AMAZON_SEARCH", message: "Not on a search page." });
+      return true;
+    }
+    const data = extractSearchData();
+    sendResponse({ success: true, ...data });
     return true;
   }
 });
 
-// Inject Embedded In-Page Floating Widget
-function injectEmbeddedUI() {
-  if (!isAmazonPDP() || document.getElementById("amz-synth-root")) {
-    return;
-  }
+// --- In-Page UI Injection ---
+function injectAutoSynthesizerUI() {
+  const isProduct = isAmazonProductPage();
+  const isSearch = isAmazonSearchPage();
 
-  const container = document.createElement("div");
-  container.id = "amz-synth-root";
-  document.body.appendChild(container);
+  if (!isProduct && !isSearch) return;
+  if (document.getElementById("amz-synth-root")) return;
 
-  const shadow = container.attachShadow({ mode: "open" });
+  const root = document.createElement("div");
+  root.id = "amz-synth-root";
+  document.body.appendChild(root);
+
+  const shadow = root.attachShadow({ mode: "open" });
 
   const style = document.createElement("style");
   style.textContent = `
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     
-    /* Floating Trigger Button */
-    .floating-btn {
+    /* Minimized Floating Pill */
+    .pill-btn {
       position: fixed;
       bottom: 24px;
       right: 24px;
-      z-index: 999999;
+      z-index: 9999999;
       background: linear-gradient(135deg, #1e293b, #0f172a);
       color: #38bdf8;
       border: 1px solid #38bdf8;
       border-radius: 50px;
-      padding: 12px 20px;
+      padding: 10px 18px;
       font-size: 13px;
       font-weight: 700;
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px rgba(56, 189, 248, 0.3);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 189, 248, 0.4);
       cursor: pointer;
-      display: flex;
+      display: none;
       align-items: center;
       gap: 8px;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: all 0.2s ease;
     }
-    .floating-btn:hover {
-      transform: translateY(-2px) scale(1.03);
+    .pill-btn:hover {
+      transform: translateY(-2px) scale(1.04);
       background: #0f172a;
-      box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.6), 0 0 20px rgba(56, 189, 248, 0.5);
     }
-    .btn-icon {
-      font-size: 16px;
-    }
-
-    /* Modal / Slide-out Panel */
-    .drawer-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.6);
-      backdrop-filter: blur(4px);
-      z-index: 1000000;
+    .pill-btn.visible {
       display: flex;
-      justify-content: flex-end;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.25s ease;
-    }
-    .drawer-overlay.active {
-      opacity: 1;
-      pointer-events: auto;
     }
 
-    .drawer {
-      width: 440px;
-      max-width: 90vw;
-      height: 100vh;
+    /* Auto-Popup Docked Panel */
+    .docked-panel {
+      position: fixed;
+      top: 75px;
+      right: 24px;
+      width: 420px;
+      max-width: calc(100vw - 48px);
+      max-height: calc(100vh - 100px);
       background: #0f172a;
       color: #f8fafc;
-      box-shadow: -10px 0 35px rgba(0, 0, 0, 0.8);
+      border: 1px solid #334155;
+      border-radius: 14px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.75), 0 0 25px rgba(56, 189, 248, 0.15);
+      z-index: 9999998;
       display: flex;
       flex-direction: column;
-      transform: translateX(100%);
-      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-      border-left: 1px solid #1e293b;
+      overflow: hidden;
+      animation: slideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .drawer-overlay.active .drawer {
-      transform: translateX(0);
+    .docked-panel.hidden {
+      display: none;
     }
 
-    /* Drawer Header */
-    .drawer-header {
-      padding: 18px 20px;
+    @keyframes slideIn {
+      from { transform: translateX(110%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    /* Panel Header */
+    .panel-header {
+      padding: 14px 18px;
+      background: #0f172a;
       border-bottom: 1px solid #1e293b;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      background: #0f172a;
     }
-    .drawer-title-group {
+    .header-branding {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
-    .drawer-title {
-      font-size: 16px;
+    .header-branding h3 {
+      font-size: 14px;
       font-weight: 700;
       color: #f8fafc;
     }
-    .close-btn {
+    .status-badge {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 10px;
+      background: #064e3b;
+      color: #34d399;
+      border: 1px solid #059669;
+    }
+    .panel-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .icon-btn {
       background: #1e293b;
       border: 1px solid #334155;
       color: #94a3b8;
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      font-size: 16px;
+      font-size: 13px;
       transition: all 0.15s ease;
     }
-    .close-btn:hover {
+    .icon-btn:hover {
       background: #334155;
       color: #ffffff;
     }
 
-    /* Drawer Body */
-    .drawer-body {
+    /* Panel Content */
+    .panel-body {
       flex: 1;
       overflow-y: auto;
-      padding: 20px;
+      padding: 16px;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 14px;
     }
 
-    /* Score Card */
-    .product-score-card {
+    /* Scrollbars */
+    .panel-body::-webkit-scrollbar { width: 5px; }
+    .panel-body::-webkit-scrollbar-track { background: #0f172a; }
+    .panel-body::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+    /* Product Card */
+    .product-card {
       background: #1e293b;
       border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 16px;
+      border-radius: 10px;
+      padding: 12px 14px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
     }
-    .product-name-heading {
-      font-size: 13.5px;
+    .product-title {
+      font-size: 13px;
       font-weight: 600;
-      color: #e2e8f0;
-      line-height: 1.4;
+      color: #f1f5f9;
       display: -webkit-box;
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
+      line-height: 1.35;
     }
     .score-badge {
-      padding: 8px 12px;
-      border-radius: 10px;
+      padding: 6px 10px;
+      border-radius: 8px;
       display: flex;
       align-items: baseline;
       font-weight: 800;
-      font-size: 22px;
+      font-size: 20px;
       line-height: 1;
       white-space: nowrap;
     }
     .score-badge.high { background: #064e3b; border: 1px solid #10b981; color: #34d399; }
     .score-badge.medium { background: #451a03; border: 1px solid #d97706; color: #fbbf24; }
     .score-badge.low { background: #4c0519; border: 1px solid #e11d48; color: #fb7185; }
-    .score-scale { font-size: 12px; font-weight: 600; opacity: 0.8; margin-left: 2px; }
+    .score-max { font-size: 11px; font-weight: 600; opacity: 0.8; margin-left: 1px; }
 
-    /* Matrix */
+    /* Pros & Cons Matrix */
     .matrix-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 12px;
+      gap: 10px;
     }
-    .matrix-card {
+    .matrix-box {
       background: #1e293b;
-      border-radius: 10px;
-      padding: 12px;
+      border-radius: 8px;
+      padding: 10px;
       border: 1px solid #334155;
     }
-    .pros-card { border-top: 3px solid #10b981; }
-    .cons-card { border-top: 3px solid #f43f5e; }
-    .matrix-title {
-      font-size: 12.5px;
+    .pros-box { border-top: 3px solid #10b981; }
+    .cons-box { border-top: 3px solid #f43f5e; }
+    .matrix-heading {
+      font-size: 12px;
       font-weight: 700;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
     }
-    .pros-card .matrix-title { color: #34d399; }
-    .cons-card .matrix-title { color: #fb7185; }
+    .pros-box .matrix-heading { color: #34d399; }
+    .cons-box .matrix-heading { color: #fb7185; }
     .matrix-list {
       list-style: none;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 5px;
     }
     .matrix-list li {
-      font-size: 11.5px;
+      font-size: 11px;
       color: #cbd5e1;
       position: relative;
       padding-left: 10px;
@@ -286,225 +410,384 @@ function injectEmbeddedUI() {
       color: #64748b;
     }
 
-    /* Bullet Sections */
-    .section-box {
+    /* Highlight Sections */
+    .section-card {
       background: #1e293b;
       border: 1px solid #334155;
-      border-radius: 10px;
-      padding: 14px;
+      border-radius: 8px;
+      padding: 12px;
     }
-    .section-title {
-      font-size: 13px;
+    .section-header {
+      font-size: 12px;
       font-weight: 700;
-      color: #f1f5f9;
-      margin-bottom: 10px;
+      color: #e2e8f0;
+      margin-bottom: 8px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
-    .bullet-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; }
     .green-dot { background: #10b981; }
     .red-dot { background: #f43f5e; }
-    .review-bullets {
+    .bullets {
       list-style: none;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 7px;
     }
-    .review-bullets li {
-      font-size: 12px;
+    .bullets li {
+      font-size: 11.5px;
       color: #cbd5e1;
       position: relative;
-      padding-left: 14px;
-      line-height: 1.45;
+      padding-left: 12px;
+      line-height: 1.4;
     }
-    .review-bullets li::before {
+    .bullets li::before {
       content: "–";
       position: absolute;
       left: 0;
       color: #64748b;
     }
 
-    /* Skeleton Loader */
-    .skeleton-box {
+    /* Search Results Top Picks */
+    .search-summary-card {
+      background: #1e293b;
+      border: 1px solid #38bdf8;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 12px;
+      color: #e2e8f0;
+      line-height: 1.45;
+    }
+    .top-pick-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .pick-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .pick-badge {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: #172554;
+      color: #60a5fa;
+      border: 1px solid #1e40af;
+      display: inline-block;
+      margin-bottom: 4px;
+    }
+    .pick-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #f8fafc;
+      line-height: 1.35;
+    }
+    .pick-score {
+      font-size: 16px;
+      font-weight: 800;
+      color: #34d399;
+      background: #064e3b;
+      border: 1px solid #10b981;
+      padding: 4px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .pick-price {
+      font-size: 12px;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    .pick-verdict {
+      font-size: 11.5px;
+      color: #cbd5e1;
+      font-style: italic;
+      line-height: 1.35;
+    }
+    .pick-link-btn {
+      align-self: flex-start;
+      margin-top: 4px;
+      background: #2563eb;
+      color: #ffffff;
+      text-decoration: none;
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      transition: background 0.15s ease;
+    }
+    .pick-link-btn:hover {
+      background: #1d4ed8;
+    }
+
+    /* Skeleton Loading */
+    .skeleton {
       background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
       background-size: 200% 100%;
       animation: shimmer 1.5s infinite;
-      border-radius: 8px;
+      border-radius: 6px;
     }
     @keyframes shimmer {
       0% { background-position: 200% 0; }
       100% { background-position: -200% 0; }
     }
-    .sk-header { height: 75px; margin-bottom: 14px; }
-    .sk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; height: 90px; margin-bottom: 14px; }
-    .sk-list { height: 110px; margin-bottom: 14px; }
+    .sk-title { height: 60px; margin-bottom: 10px; }
+    .sk-matrix { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; height: 80px; margin-bottom: 10px; }
+    .sk-body { height: 100px; margin-bottom: 10px; }
+    .loading-subtext { text-align: center; color: #94a3b8; font-size: 11.5px; font-style: italic; }
 
-    /* Alert / Error Box */
-    .alert-box {
+    /* Alert Box */
+    .alert-card {
       background: #2a1215;
       border: 1px solid #881337;
       color: #fecdd3;
-      padding: 14px;
-      border-radius: 10px;
-      font-size: 12.5px;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 12px;
       line-height: 1.4;
     }
   `;
-
   shadow.appendChild(style);
 
-  // Floating trigger button
-  const floatBtn = document.createElement("button");
-  floatBtn.className = "floating-btn";
-  floatBtn.innerHTML = `
-    <span class="btn-icon">✨</span>
-    <span>Synthesize Reviews</span>
-  `;
-  shadow.appendChild(floatBtn);
+  // Minimized Pill
+  const pillBtn = document.createElement("button");
+  pillBtn.className = "pill-btn";
+  pillBtn.innerHTML = `<span>✨</span><span>Review Synthesizer</span>`;
+  shadow.appendChild(pillBtn);
 
-  // Slide-out Drawer
-  const overlay = document.createElement("div");
-  overlay.className = "drawer-overlay";
-  overlay.innerHTML = `
-    <div class="drawer">
-      <div class="drawer-header">
-        <div class="drawer-title-group">
-          <span style="font-size: 20px;">✨</span>
-          <h3 class="drawer-title">Review Synthesizer</h3>
-        </div>
-        <button class="close-btn" id="closeDrawerBtn">✕</button>
+  // Main Docked Panel
+  const panel = document.createElement("div");
+  panel.className = "docked-panel";
+  panel.innerHTML = `
+    <div class="panel-header">
+      <div class="header-branding">
+        <span style="font-size:16px;">✨</span>
+        <h3 id="panelHeaderTitle">${isProduct ? "Product Review Synthesizer" : "Search Synthesizer"}</h3>
+        <span class="status-badge">Active</span>
       </div>
-      <div class="drawer-body" id="drawerBody">
-        <!-- Rendered dynamically -->
+      <div class="panel-controls">
+        <button class="icon-btn" id="minimizeBtn" title="Minimize">–</button>
+        <button class="icon-btn" id="closeBtn" title="Close">✕</button>
       </div>
     </div>
+    <div class="panel-body" id="panelBody">
+      <div class="skeleton sk-title"></div>
+      <div class="sk-matrix">
+        <div class="skeleton"></div>
+        <div class="skeleton"></div>
+      </div>
+      <div class="skeleton sk-body"></div>
+      <p class="loading-subtext" id="loadingCaption">
+        ${isProduct ? "Extracting reviews and running AI reliability synthesis..." : "Analyzing top search products and comparing customer feedback..."}
+      </p>
+    </div>
   `;
-  shadow.appendChild(overlay);
+  shadow.appendChild(panel);
 
-  const drawerBody = overlay.querySelector("#drawerBody");
-  const closeBtn = overlay.querySelector("#closeDrawerBtn");
+  const panelBody = panel.querySelector("#panelBody");
+  const minimizeBtn = panel.querySelector("#minimizeBtn");
+  const closeBtn = panel.querySelector("#closeBtn");
 
-  function closeDrawer() {
-    overlay.classList.remove("active");
+  function minimizePanel() {
+    panel.classList.add("hidden");
+    pillBtn.classList.add("visible");
   }
 
-  closeBtn.addEventListener("click", closeDrawer);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) closeDrawer();
-  });
+  function expandPanel() {
+    panel.classList.remove("hidden");
+    pillBtn.classList.remove("visible");
+  }
 
-  floatBtn.addEventListener("click", async () => {
-    overlay.classList.add("active");
-    drawerBody.innerHTML = `
-      <div class="skeleton-box sk-header"></div>
-      <div class="sk-grid">
-        <div class="skeleton-box"></div>
-        <div class="skeleton-box"></div>
-      </div>
-      <div class="skeleton-box sk-list"></div>
-      <p style="text-align:center; color:#94a3b8; font-size:12px; margin-top:8px;">
-        Extracting verified reviews & analyzing with AI backend...
-      </p>
-    `;
+  minimizeBtn.addEventListener("click", minimizePanel);
+  closeBtn.addEventListener("click", minimizePanel);
+  pillBtn.addEventListener("click", expandPanel);
 
-    const title = extractProductTitle();
-    const reviews = extractReviews(20);
+  // Run Synthesis Automatically
+  if (isProduct) {
+    runProductAnalysis(panelBody);
+  } else if (isSearch) {
+    runSearchAnalysis(panelBody);
+  }
+}
 
-    if (reviews.length === 0) {
-      drawerBody.innerHTML = `
-        <div class="alert-box">
-          <strong>No Reviews Found:</strong> This product listing does not appear to have customer review text available on this page.
-        </div>
-      `;
-      return;
-    }
+// Automatic Product Page Review Synthesis
+function runProductAnalysis(container) {
+  const title = extractProductTitle();
+  const reviews = extractReviewsFromDOM(20);
+  const asin = extractASIN();
+  const domain = window.location.hostname;
 
-    // Call background service worker
-    chrome.runtime.sendMessage(
-      {
-        action: "ANALYZE_REVIEWS",
-        payload: { product_title: title, reviews: reviews }
-      },
-      (res) => {
-        if (!res || !res.success) {
-          const errDetail = res ? res.error : "Backend connection error";
-          drawerBody.innerHTML = `
-            <div class="alert-box">
-              <strong>Backend Offline:</strong><br>
-              ${errDetail}<br><br>
-              Make sure your FastAPI server is running:<br>
-              <code>uvicorn app.main:app --reload</code>
-            </div>
-          `;
-          return;
-        }
-
-        const data = res.data;
-        const score = parseFloat(data.score) || 0.0;
-        let scoreClass = "high";
-        if (score < 5.0) scoreClass = "low";
-        else if (score < 7.5) scoreClass = "medium";
-
-        drawerBody.innerHTML = `
-          <div class="product-score-card">
-            <div>
-              <span style="font-size:10px; font-weight:700; color:#38bdf8; text-transform:uppercase;">Product Analysis</span>
-              <div class="product-name-heading">${data.product_name || title}</div>
-            </div>
-            <div style="text-align:right;">
-              <div class="score-badge ${scoreClass}">
-                <span>${score.toFixed(1)}</span>
-                <span class="score-scale">/10</span>
-              </div>
-              <span style="font-size:10px; color:#94a3b8; text-transform:uppercase;">Reliability</span>
-            </div>
-          </div>
-
-          <div class="matrix-grid">
-            <div class="matrix-card pros-card">
-              <div class="matrix-title"><span>✓</span> Pros</div>
-              <ul class="matrix-list">
-                ${(data.pros || []).map(p => `<li>${p}</li>`).join("")}
-              </ul>
-            </div>
-            <div class="matrix-card cons-card">
-              <div class="matrix-title"><span>✕</span> Cons</div>
-              <ul class="matrix-list">
-                ${(data.cons || []).map(c => `<li>${c}</li>`).join("")}
-              </ul>
-            </div>
-          </div>
-
-          <div class="section-box">
-            <div class="section-title">
-              <span class="bullet-dot green-dot"></span> Positive Reviews
-            </div>
-            <ul class="review-bullets">
-              ${(data.positive_reviews || []).map(r => `<li>${r}</li>`).join("")}
-            </ul>
-          </div>
-
-          <div class="section-box">
-            <div class="section-title">
-              <span class="bullet-dot red-dot"></span> Negative Reviews & Issues
-            </div>
-            <ul class="review-bullets">
-              ${(data.negative_reviews || []).map(r => `<li>${r}</li>`).join("")}
-            </ul>
+  chrome.runtime.sendMessage(
+    {
+      action: "ANALYZE_REVIEWS",
+      payload: {
+        product_title: title,
+        reviews: reviews,
+        asin: asin,
+        domain: domain
+      }
+    },
+    (res) => {
+      if (!res || !res.success) {
+        const err = res ? res.error : "Backend offline or unreachable";
+        container.innerHTML = `
+          <div class="alert-card">
+            <strong>Backend Connection Issue:</strong><br>${err}<br><br>
+            Please make sure the backend is active at <code>http://127.0.0.1:8000</code>.
           </div>
         `;
+        return;
       }
-    );
-  });
+
+      const data = res.data;
+      const score = parseFloat(data.score) || 0.0;
+      let scoreClass = "high";
+      if (score < 5.0) scoreClass = "low";
+      else if (score < 7.5) scoreClass = "medium";
+
+      container.innerHTML = `
+        <div class="product-card">
+          <div>
+            <span style="font-size:10px; font-weight:700; color:#38bdf8; text-transform:uppercase;">Verified Product</span>
+            <div class="product-title">${data.product_name || title}</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="score-badge ${scoreClass}">
+              <span>${score.toFixed(1)}</span>
+              <span class="score-max">/10</span>
+            </div>
+            <span style="font-size:9.5px; color:#94a3b8; text-transform:uppercase;">Reliability</span>
+          </div>
+        </div>
+
+        <div class="matrix-grid">
+          <div class="matrix-box pros-box">
+            <div class="matrix-heading"><span>✓</span> Pros</div>
+            <ul class="matrix-list">
+              ${(data.pros || []).map(p => `<li>${p}</li>`).join("")}
+            </ul>
+          </div>
+          <div class="matrix-box cons-box">
+            <div class="matrix-heading"><span>✕</span> Cons</div>
+            <ul class="matrix-list">
+              ${(data.cons || []).map(c => `<li>${c}</li>`).join("")}
+            </ul>
+          </div>
+        </div>
+
+        <div class="section-card">
+          <div class="section-header">
+            <span class="dot green-dot"></span> Positive Reviews
+          </div>
+          <ul class="bullets">
+            ${(data.positive_reviews || []).map(r => `<li>${r}</li>`).join("")}
+          </ul>
+        </div>
+
+        <div class="section-card">
+          <div class="section-header">
+            <span class="dot red-dot"></span> Negative Reviews & Defects
+          </div>
+          <ul class="bullets">
+            ${(data.negative_reviews || []).map(r => `<li>${r}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+    }
+  );
 }
 
-// Automatically inject on page load if on PDP
+// Automatic Search Page Comparative Synthesis
+function runSearchAnalysis(container) {
+  const searchData = extractSearchData();
+
+  if (!searchData.products || searchData.products.length === 0) {
+    container.innerHTML = `
+      <div class="alert-card">
+        Scanning search page for products... If products don't appear, refresh the page.
+      </div>
+    `;
+    return;
+  }
+
+  chrome.runtime.sendMessage(
+    {
+      action: "ANALYZE_SEARCH",
+      payload: searchData
+    },
+    (res) => {
+      if (!res || !res.success) {
+        const err = res ? res.error : "Backend offline or unreachable";
+        container.innerHTML = `
+          <div class="alert-card">
+            <strong>Backend Connection Issue:</strong><br>${err}
+          </div>
+        `;
+        return;
+      }
+
+      const data = res.data;
+      container.innerHTML = `
+        <div class="search-summary-card">
+          <strong>Buying Guide for "${data.query}":</strong><br>
+          ${data.summary}
+        </div>
+
+        <div style="font-size:12px; font-weight:700; color:#e2e8f0; margin-top:2px;">
+          Top Recommended Picks
+        </div>
+
+        ${(data.top_picks || []).map(pick => `
+          <div class="top-pick-card">
+            <div class="pick-header">
+              <div>
+                <span class="pick-badge">${pick.badge}</span>
+                <div class="pick-title">${pick.title}</div>
+                <span class="pick-price">${pick.price}</span>
+              </div>
+              <div class="pick-score">${pick.score.toFixed(1)}/10</div>
+            </div>
+            <div class="pick-verdict">"${pick.verdict}"</div>
+            
+            <div class="matrix-grid" style="margin-top:4px;">
+              <div class="matrix-box pros-box" style="padding:6px 8px;">
+                <div class="matrix-heading" style="font-size:11px;">✓ Pros</div>
+                <ul class="matrix-list">
+                  ${(pick.pros || []).slice(0, 2).map(p => `<li>${p}</li>`).join("")}
+                </ul>
+              </div>
+              <div class="matrix-box cons-box" style="padding:6px 8px;">
+                <div class="matrix-heading" style="font-size:11px;">✕ Cons</div>
+                <ul class="matrix-list">
+                  ${(pick.cons || []).slice(0, 2).map(c => `<li>${c}</li>`).join("")}
+                </ul>
+              </div>
+            </div>
+
+            ${pick.link ? `<a href="${pick.link}" class="pick-link-btn" target="_blank">View on Amazon →</a>` : ""}
+          </div>
+        `).join("")}
+      `;
+    }
+  );
+}
+
+// Automatically mount when DOM is ready
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", injectEmbeddedUI);
+  document.addEventListener("DOMContentLoaded", injectAutoSynthesizerUI);
 } else {
-  injectEmbeddedUI();
+  injectAutoSynthesizerUI();
 }
 
-// Fallback in case of dynamic SPA navigation
-setTimeout(injectEmbeddedUI, 1500);
+// Additional delayed checks for dynamic hydration
+setTimeout(injectAutoSynthesizerUI, 1200);
+setTimeout(injectAutoSynthesizerUI, 3000);
