@@ -1,33 +1,28 @@
 /**
  * Amazon Review Synthesizer - Background Service Worker
- * Handles API communication and reliable server-side review extraction for Amazon ASINs.
+ * Handles API communication with local FastAPI backend cleanly without triggering extension errors.
  */
 
 const API_BASE = "http://127.0.0.1:8000";
 
-// Fetches Amazon's dedicated /product-reviews/ page for the ASIN to get verified reviews directly
+// Optional fallback: attempt fetching reviews if DOM was not hydrated
 async function fetchReviewsByAsin(domain, asin) {
   if (!asin) return [];
   try {
     const targetUrl = `https://${domain}/product-reviews/${asin}/ref=cm_cr_dp_d_show_all_btm?reviewerType=all_reviews&sortBy=recent&pageNumber=1`;
-    console.log("Fetching reviews from dedicated reviews page:", targetUrl);
-    
     const response = await fetch(targetUrl, {
       headers: {
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
       }
     });
 
     if (!response.ok) {
-      console.warn("Failed to fetch product-reviews page, HTTP status:", response.status);
       return [];
     }
 
     const html = await response.text();
     const reviews = [];
 
-    // Extract text inside span[data-hook="review-body"]
     const bodyRegex = /<span\s+data-hook="review-body"[^>]*>([\s\S]*?)<\/span>/gi;
     let match;
     while ((match = bodyRegex.exec(html)) !== null && reviews.length < 15) {
@@ -47,10 +42,9 @@ async function fetchReviewsByAsin(domain, asin) {
       }
     }
 
-    console.log(`Extracted ${reviews.length} reviews from ASIN ${asin}`);
     return reviews;
   } catch (err) {
-    console.error("Error fetching reviews by ASIN:", err);
+    // Silently return empty without triggering Chrome extension error logs
     return [];
   }
 }
@@ -64,7 +58,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const domain = request.payload.domain || "www.amazon.ca";
         const asin = request.payload.asin;
 
-        // If DOM review extraction was empty (lazy-loaded), fetch directly by ASIN
+        // If DOM reviews were empty, try direct ASIN review page fetch
         if (reviews.length < 2 && asin) {
           const directReviews = await fetchReviewsByAsin(domain, asin);
           if (directReviews.length > 0) {
@@ -83,20 +77,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         if (!res.ok) {
           const errorText = await res.text();
-          throw new Error(`API returned ${res.status}: ${errorText}`);
+          sendResponse({
+            success: false,
+            error: `API error (${res.status}): ${errorText}`
+          });
+          return;
         }
 
         const data = await res.json();
         sendResponse({ success: true, data: data });
       } catch (err) {
-        console.error("Analysis error in background worker:", err);
         sendResponse({
           success: false,
-          error: err.message || "Failed to reach backend API at http://127.0.0.1:8000"
+          error: err.message || "Could not connect to FastAPI backend at http://127.0.0.1:8000"
         });
       }
     })();
-    return true; // Keep channel open for async response
+    return true; // Keep channel open
   }
 
   // 2. Search Results Multi-Product Analysis
@@ -114,16 +111,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         if (!res.ok) {
           const errorText = await res.text();
-          throw new Error(`API returned ${res.status}: ${errorText}`);
+          sendResponse({
+            success: false,
+            error: `API error (${res.status}): ${errorText}`
+          });
+          return;
         }
 
         const data = await res.json();
         sendResponse({ success: true, data: data });
       } catch (err) {
-        console.error("Search analysis error in background worker:", err);
         sendResponse({
           success: false,
-          error: err.message || "Failed to reach backend API at http://127.0.0.1:8000"
+          error: err.message || "Could not connect to FastAPI backend at http://127.0.0.1:8000"
         });
       }
     })();
