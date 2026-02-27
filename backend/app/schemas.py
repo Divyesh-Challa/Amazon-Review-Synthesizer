@@ -4,7 +4,10 @@ from pydantic import BaseModel, Field
 # Single Product Review Analysis
 class AnalyzeRequest(BaseModel):
     product_title: str = Field(..., description="Title of the Amazon product")
-    reviews: List[str] = Field(..., description="List of scraped review text strings")
+    reviews: List[str] = Field(default_factory=list, description="List of scraped review text strings")
+    rating: Optional[float] = Field(None, description="Average star rating, e.g. 4.0")
+    review_count: Optional[str] = Field(None, description="Total review count, e.g. 5,458")
+    customer_consensus: Optional[str] = Field(None, description="Amazon AI customer insights summary")
 
 class ReviewSynthesisResponse(BaseModel):
     product_name: str = Field(..., description="Sanitized and readable product name")

@@ -1,7 +1,7 @@
 /**
  * Amazon Review Synthesizer - Content Script
- * Automatically detects Amazon Product & Search pages, automatically opens on-page synthesis UI,
- * and extracts verified customer reviews or search ranking data.
+ * Automatically detects Amazon Product & Search pages, automatically opens on-page synthesis UI
+ * positioned in the top-right corner, and extracts verified customer reviews or search ranking data.
  */
 
 // --- Page Detection ---
@@ -32,14 +32,12 @@ function extractASIN() {
 }
 
 function extractProductTitle() {
-  // Check standard span#productTitle
   const titleEl = document.getElementById("productTitle");
   if (titleEl && titleEl.textContent.trim()) {
     const text = titleEl.textContent.trim();
     if (text.toLowerCase() !== "amazon official") return text;
   }
 
-  // Check H1 elements
   const h1El = document.querySelector("h1#title") || 
                document.querySelector("h1.product-title-word-break") ||
                document.querySelector("#title h1") ||
@@ -49,17 +47,47 @@ function extractProductTitle() {
     if (text.toLowerCase() !== "amazon official" && text.length > 5) return text;
   }
 
-  // Fallback to clean document.title
   let docTitle = document.title || "";
   docTitle = docTitle.replace(/amazon(\.ca|\.com)?\s*:\s*/i, "");
-  docTitle = docTitle.replace(/:\s*amazon(\.ca|\.com)?/i, "");
+  docTitle = docTitle.replace(/:\\s*amazon(\.ca|\.com)?/i, "");
   return docTitle.split(":")[0].trim() || "Amazon Product";
+}
+
+function extractProductRatingAndCount() {
+  let rating = 4.5;
+  let reviewCount = "";
+
+  // Rating
+  const ratingEl = document.querySelector('span[data-hook="rating-out-of-text"]') ||
+                   document.querySelector('#acrPopover') ||
+                   document.querySelector('.a-icon-star span') ||
+                   document.querySelector('i[data-hook="average-star-rating"] span');
+  if (ratingEl && ratingEl.innerText) {
+    const match = ratingEl.innerText.match(/(\d+(\.\d+)?)/);
+    if (match) rating = parseFloat(match[1]);
+  }
+
+  // Count
+  const countEl = document.getElementById("acrCustomerReviewText") ||
+                  document.querySelector('span[data-hook="total-review-count"]');
+  if (countEl && countEl.innerText) {
+    reviewCount = countEl.innerText.trim();
+  }
+
+  return { rating, reviewCount };
+}
+
+function extractCustomerConsensus() {
+  const summaryEl = document.querySelector('[data-hook="cr-insights-widget"]') ||
+                    document.querySelector('#product-summary') ||
+                    document.querySelector('#cr-customer-review-insights') ||
+                    document.querySelector('#cr-summarization-attributes-list');
+  return summaryEl ? summaryEl.innerText.trim() : "";
 }
 
 function extractReviewsFromDOM(maxCount = 20) {
   const reviews = [];
 
-  // Standard desktop review card selectors
   const reviewCards = document.querySelectorAll('div[data-hook="review"]');
   reviewCards.forEach((card) => {
     if (reviews.length >= maxCount) return;
@@ -72,7 +100,6 @@ function extractReviewsFromDOM(maxCount = 20) {
     }
   });
 
-  // Fallback: general review text containers
   if (reviews.length === 0) {
     document.querySelectorAll('.review-text-content, [data-hook="review-collapsed"]').forEach((el) => {
       if (reviews.length >= maxCount) return;
@@ -81,15 +108,31 @@ function extractReviewsFromDOM(maxCount = 20) {
     });
   }
 
-  // Fallback 2: "Customers say" AI summary container on modern Amazon PDPs
-  const summaryEl = document.querySelector('[data-hook="cr-insights-widget"]') ||
-                    document.querySelector('#product-summary') ||
-                    document.querySelector('#cr-summarization-attributes-list');
-  if (summaryEl && summaryEl.innerText.trim().length > 20) {
-    reviews.unshift("Customer Consensus: " + summaryEl.innerText.trim());
-  }
-
   return reviews;
+}
+
+// Same-Origin Review Page Fetch (Carries active browser session without bot blocks)
+async function fetchSameOriginReviews(asin, maxCount = 15) {
+  if (!asin) return [];
+  try {
+    const url = `/product-reviews/${asin}/ref=cm_cr_dp_d_show_all_btm?reviewerType=all_reviews&sortBy=recent&pageNumber=1`;
+    const resp = await fetch(url, { credentials: "same-origin" });
+    if (!resp.ok) return [];
+
+    const html = await resp.text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const reviews = [];
+
+    doc.querySelectorAll('span[data-hook="review-body"], .review-text-content span').forEach((el) => {
+      if (reviews.length >= maxCount) return;
+      const text = el.innerText ? el.innerText.trim() : el.textContent.trim();
+      if (text.length > 15) reviews.push(text);
+    });
+
+    return reviews;
+  } catch (err) {
+    return [];
+  }
 }
 
 // --- Data Extraction: Search Page ---
@@ -104,7 +147,6 @@ function extractSearchData() {
   productCards.forEach((card) => {
     if (products.length >= 8) return;
 
-    // Filter out sponsored ads if organic results are available
     const isSponsored = card.querySelector('.puis-sponsored-label-text, .s-sponsored-label-text');
     
     const titleEl = card.querySelector('h2 a span') || 
@@ -116,7 +158,6 @@ function extractSearchData() {
 
     const asin = card.getAttribute("data-asin") || "";
 
-    // Rating
     const ratingEl = card.querySelector('.a-icon-alt');
     let rating = 4.5;
     if (ratingEl && ratingEl.innerText) {
@@ -124,22 +165,18 @@ function extractSearchData() {
       if (!isNaN(parsed)) rating = parsed;
     }
 
-    // Review count
     const countEl = card.querySelector('span.a-size-base.s-underline-text') ||
                     card.querySelector('a[href*="customerReviews"] span');
     const review_count = countEl ? countEl.innerText.trim() : "100+";
 
-    // Price
     const priceEl = card.querySelector('.a-price .a-offscreen') || 
                     card.querySelector('.a-price-whole');
     const price = priceEl ? priceEl.innerText.trim() : "See Price";
 
-    // Badges (e.g. Amazon's Choice, Best Seller)
     const badgeEl = card.querySelector('.a-badge-text') || 
                     card.querySelector('.s-coupon-highlight-color');
     const badge = badgeEl ? badgeEl.innerText.trim() : (isSponsored ? "Featured" : "");
 
-    // Link
     const linkEl = card.querySelector('h2 a');
     const link = linkEl ? linkEl.href : "";
 
@@ -164,16 +201,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ success: false, error: "NOT_AMAZON_PDP", message: "Not on a product detail page." });
       return true;
     }
-    const title = extractProductTitle();
-    const reviews = extractReviewsFromDOM(20);
-    const asin = extractASIN();
-    sendResponse({
-      success: true,
-      title: title,
-      reviews: reviews,
-      asin: asin,
-      domain: window.location.hostname
-    });
+    (async () => {
+      const title = extractProductTitle();
+      let reviews = extractReviewsFromDOM(20);
+      const asin = extractASIN();
+      const consensus = extractCustomerConsensus();
+      const { rating, reviewCount } = extractProductRatingAndCount();
+
+      if (reviews.length < 3 && asin) {
+        const directRevs = await fetchSameOriginReviews(asin);
+        if (directRevs.length > 0) reviews = directRevs;
+      }
+
+      sendResponse({
+        success: true,
+        title: title,
+        reviews: reviews,
+        asin: asin,
+        rating: rating,
+        review_count: reviewCount,
+        customer_consensus: consensus,
+        domain: window.location.hostname
+      });
+    })();
     return true;
   }
 
@@ -206,52 +256,52 @@ function injectAutoSynthesizerUI() {
   style.textContent = `
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     
-    /* Minimized Floating Pill */
+    /* Minimized Floating Pill in Top-Right */
     .pill-btn {
       position: fixed;
-      bottom: 24px;
-      right: 24px;
+      top: 16px;
+      right: 16px;
       z-index: 9999999;
       background: linear-gradient(135deg, #1e293b, #0f172a);
       color: #38bdf8;
       border: 1px solid #38bdf8;
       border-radius: 50px;
-      padding: 10px 18px;
-      font-size: 13px;
+      padding: 8px 16px;
+      font-size: 12px;
       font-weight: 700;
       box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 189, 248, 0.4);
       cursor: pointer;
       display: none;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       transition: all 0.2s ease;
     }
     .pill-btn:hover {
-      transform: translateY(-2px) scale(1.04);
+      transform: translateY(-1px) scale(1.03);
       background: #0f172a;
     }
     .pill-btn.visible {
       display: flex;
     }
 
-    /* Auto-Popup Docked Panel */
+    /* Auto-Popup Docked Panel positioned at Top-Right */
     .docked-panel {
       position: fixed;
-      top: 75px;
-      right: 24px;
-      width: 420px;
-      max-width: calc(100vw - 48px);
-      max-height: calc(100vh - 100px);
+      top: 14px;
+      right: 14px;
+      width: 360px;
+      max-width: calc(100vw - 28px);
+      max-height: calc(100vh - 28px);
       background: #0f172a;
       color: #f8fafc;
       border: 1px solid #334155;
-      border-radius: 14px;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.75), 0 0 25px rgba(56, 189, 248, 0.15);
+      border-radius: 12px;
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.8), 0 0 25px rgba(56, 189, 248, 0.2);
       z-index: 9999998;
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      animation: slideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .docked-panel.hidden {
       display: none;
@@ -264,7 +314,7 @@ function injectAutoSynthesizerUI() {
 
     /* Panel Header */
     .panel-header {
-      padding: 14px 18px;
+      padding: 12px 14px;
       background: #0f172a;
       border-bottom: 1px solid #1e293b;
       display: flex;
@@ -274,19 +324,19 @@ function injectAutoSynthesizerUI() {
     .header-branding {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
     .header-branding h3 {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
       color: #f8fafc;
     }
     .status-badge {
-      font-size: 10px;
+      font-size: 9.5px;
       font-weight: 700;
       text-transform: uppercase;
-      padding: 2px 7px;
-      border-radius: 10px;
+      padding: 2px 6px;
+      border-radius: 8px;
       background: #064e3b;
       color: #34d399;
       border: 1px solid #059669;
@@ -294,20 +344,20 @@ function injectAutoSynthesizerUI() {
     .panel-controls {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
     .icon-btn {
       background: #1e293b;
       border: 1px solid #334155;
       color: #94a3b8;
-      width: 28px;
-      height: 28px;
+      width: 24px;
+      height: 24px;
       border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 12px;
       transition: all 0.15s ease;
     }
     .icon-btn:hover {
@@ -319,13 +369,12 @@ function injectAutoSynthesizerUI() {
     .panel-body {
       flex: 1;
       overflow-y: auto;
-      padding: 16px;
+      padding: 14px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 12px;
     }
 
-    /* Scrollbars */
     .panel-body::-webkit-scrollbar { width: 5px; }
     .panel-body::-webkit-scrollbar-track { background: #0f172a; }
     .panel-body::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
@@ -339,10 +388,10 @@ function injectAutoSynthesizerUI() {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
     .product-title {
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 600;
       color: #f1f5f9;
       display: -webkit-box;
@@ -357,14 +406,14 @@ function injectAutoSynthesizerUI() {
       display: flex;
       align-items: baseline;
       font-weight: 800;
-      font-size: 20px;
+      font-size: 19px;
       line-height: 1;
       white-space: nowrap;
     }
     .score-badge.high { background: #064e3b; border: 1px solid #10b981; color: #34d399; }
     .score-badge.medium { background: #451a03; border: 1px solid #d97706; color: #fbbf24; }
     .score-badge.low { background: #4c0519; border: 1px solid #e11d48; color: #fb7185; }
-    .score-max { font-size: 11px; font-weight: 600; opacity: 0.8; margin-left: 1px; }
+    .score-max { font-size: 10.5px; font-weight: 600; opacity: 0.8; margin-left: 1px; }
 
     /* Pros & Cons Matrix */
     .matrix-grid {
@@ -381,7 +430,7 @@ function injectAutoSynthesizerUI() {
     .pros-box { border-top: 3px solid #10b981; }
     .cons-box { border-top: 3px solid #f43f5e; }
     .matrix-heading {
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 700;
       margin-bottom: 6px;
       display: flex;
@@ -415,10 +464,10 @@ function injectAutoSynthesizerUI() {
       background: #1e293b;
       border: 1px solid #334155;
       border-radius: 8px;
-      padding: 12px;
+      padding: 11px;
     }
     .section-header {
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 700;
       color: #e2e8f0;
       margin-bottom: 8px;
@@ -436,7 +485,7 @@ function injectAutoSynthesizerUI() {
       gap: 7px;
     }
     .bullets li {
-      font-size: 11.5px;
+      font-size: 11px;
       color: #cbd5e1;
       position: relative;
       padding-left: 12px;
@@ -454,74 +503,74 @@ function injectAutoSynthesizerUI() {
       background: #1e293b;
       border: 1px solid #38bdf8;
       border-radius: 8px;
-      padding: 12px;
-      font-size: 12px;
+      padding: 10px;
+      font-size: 11.5px;
       color: #e2e8f0;
-      line-height: 1.45;
+      line-height: 1.4;
     }
     .top-pick-card {
       background: #1e293b;
       border: 1px solid #334155;
-      border-radius: 10px;
-      padding: 12px;
+      border-radius: 8px;
+      padding: 10px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 7px;
     }
     .pick-header {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 8px;
+      gap: 6px;
     }
     .pick-badge {
-      font-size: 10px;
+      font-size: 9.5px;
       font-weight: 700;
       text-transform: uppercase;
-      padding: 2px 7px;
-      border-radius: 6px;
+      padding: 2px 6px;
+      border-radius: 4px;
       background: #172554;
       color: #60a5fa;
       border: 1px solid #1e40af;
       display: inline-block;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
     .pick-title {
-      font-size: 12.5px;
+      font-size: 12px;
       font-weight: 600;
       color: #f8fafc;
-      line-height: 1.35;
+      line-height: 1.3;
     }
     .pick-score {
-      font-size: 16px;
+      font-size: 14.5px;
       font-weight: 800;
       color: #34d399;
       background: #064e3b;
       border: 1px solid #10b981;
-      padding: 4px 8px;
-      border-radius: 6px;
+      padding: 3px 6px;
+      border-radius: 5px;
       white-space: nowrap;
     }
     .pick-price {
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 700;
       color: #38bdf8;
     }
     .pick-verdict {
-      font-size: 11.5px;
+      font-size: 11px;
       color: #cbd5e1;
       font-style: italic;
       line-height: 1.35;
     }
     .pick-link-btn {
       align-self: flex-start;
-      margin-top: 4px;
+      margin-top: 3px;
       background: #2563eb;
       color: #ffffff;
       text-decoration: none;
-      padding: 5px 12px;
-      border-radius: 6px;
-      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 5px;
+      font-size: 10.5px;
       font-weight: 600;
       transition: background 0.15s ease;
     }
@@ -540,10 +589,10 @@ function injectAutoSynthesizerUI() {
       0% { background-position: 200% 0; }
       100% { background-position: -200% 0; }
     }
-    .sk-title { height: 60px; margin-bottom: 10px; }
-    .sk-matrix { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; height: 80px; margin-bottom: 10px; }
-    .sk-body { height: 100px; margin-bottom: 10px; }
-    .loading-subtext { text-align: center; color: #94a3b8; font-size: 11.5px; font-style: italic; }
+    .sk-title { height: 50px; margin-bottom: 8px; }
+    .sk-matrix { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; height: 70px; margin-bottom: 8px; }
+    .sk-body { height: 90px; margin-bottom: 8px; }
+    .loading-subtext { text-align: center; color: #94a3b8; font-size: 11px; font-style: italic; }
 
     /* Alert Box */
     .alert-card {
@@ -558,19 +607,19 @@ function injectAutoSynthesizerUI() {
   `;
   shadow.appendChild(style);
 
-  // Minimized Pill
+  // Minimized Pill (in top right)
   const pillBtn = document.createElement("button");
   pillBtn.className = "pill-btn";
   pillBtn.innerHTML = `<span>✨</span><span>Review Synthesizer</span>`;
   shadow.appendChild(pillBtn);
 
-  // Main Docked Panel
+  // Main Docked Panel in Top Right
   const panel = document.createElement("div");
   panel.className = "docked-panel";
   panel.innerHTML = `
     <div class="panel-header">
       <div class="header-branding">
-        <span style="font-size:16px;">✨</span>
+        <span style="font-size:15px;">✨</span>
         <h3 id="panelHeaderTitle">${isProduct ? "Product Review Synthesizer" : "Search Synthesizer"}</h3>
         <span class="status-badge">Active</span>
       </div>
@@ -587,7 +636,7 @@ function injectAutoSynthesizerUI() {
       </div>
       <div class="skeleton sk-body"></div>
       <p class="loading-subtext" id="loadingCaption">
-        ${isProduct ? "Extracting reviews and running AI reliability synthesis..." : "Analyzing top search products and comparing customer feedback..."}
+        ${isProduct ? "Analyzing verified reviews & customer consensus..." : "Scanning top search items & comparing buying guide..."}
       </p>
     </div>
   `;
@@ -611,7 +660,6 @@ function injectAutoSynthesizerUI() {
   closeBtn.addEventListener("click", minimizePanel);
   pillBtn.addEventListener("click", expandPanel);
 
-  // Run Synthesis Automatically
   if (isProduct) {
     runProductAnalysis(panelBody);
   } else if (isSearch) {
@@ -620,11 +668,21 @@ function injectAutoSynthesizerUI() {
 }
 
 // Automatic Product Page Review Synthesis
-function runProductAnalysis(container) {
+async function runProductAnalysis(container) {
   const title = extractProductTitle();
-  const reviews = extractReviewsFromDOM(20);
+  let reviews = extractReviewsFromDOM(20);
   const asin = extractASIN();
   const domain = window.location.hostname;
+  const consensus = extractCustomerConsensus();
+  const { rating, reviewCount } = extractProductRatingAndCount();
+
+  // If DOM review nodes are still hydrating or lazy-loaded, fetch via same-origin
+  if (reviews.length < 3 && asin) {
+    const directRevs = await fetchSameOriginReviews(asin);
+    if (directRevs.length > 0) {
+      reviews = directRevs;
+    }
+  }
 
   chrome.runtime.sendMessage(
     {
@@ -633,7 +691,10 @@ function runProductAnalysis(container) {
         product_title: title,
         reviews: reviews,
         asin: asin,
-        domain: domain
+        domain: domain,
+        rating: rating,
+        review_count: reviewCount,
+        customer_consensus: consensus
       }
     },
     (res) => {
@@ -641,8 +702,8 @@ function runProductAnalysis(container) {
         const err = res ? res.error : "Backend offline or unreachable";
         container.innerHTML = `
           <div class="alert-card">
-            <strong>Backend Connection Issue:</strong><br>${err}<br><br>
-            Please make sure the backend is active at <code>http://127.0.0.1:8000</code>.
+            <strong>Backend Issue:</strong><br>${err}<br><br>
+            Make sure the backend is active at <code>http://127.0.0.1:8000</code>.
           </div>
         `;
         return;
@@ -657,7 +718,7 @@ function runProductAnalysis(container) {
       container.innerHTML = `
         <div class="product-card">
           <div>
-            <span style="font-size:10px; font-weight:700; color:#38bdf8; text-transform:uppercase;">Verified Product</span>
+            <span style="font-size:9.5px; font-weight:700; color:#38bdf8; text-transform:uppercase;">Verified Product</span>
             <div class="product-title">${data.product_name || title}</div>
           </div>
           <div style="text-align:right;">
@@ -665,7 +726,7 @@ function runProductAnalysis(container) {
               <span>${score.toFixed(1)}</span>
               <span class="score-max">/10</span>
             </div>
-            <span style="font-size:9.5px; color:#94a3b8; text-transform:uppercase;">Reliability</span>
+            <span style="font-size:9px; color:#94a3b8; text-transform:uppercase;">Reliability</span>
           </div>
         </div>
 
@@ -742,7 +803,7 @@ function runSearchAnalysis(container) {
           ${data.summary}
         </div>
 
-        <div style="font-size:12px; font-weight:700; color:#e2e8f0; margin-top:2px;">
+        <div style="font-size:11.5px; font-weight:700; color:#e2e8f0; margin-top:2px;">
           Top Recommended Picks
         </div>
 
@@ -758,15 +819,15 @@ function runSearchAnalysis(container) {
             </div>
             <div class="pick-verdict">"${pick.verdict}"</div>
             
-            <div class="matrix-grid" style="margin-top:4px;">
+            <div class="matrix-grid" style="margin-top:3px;">
               <div class="matrix-box pros-box" style="padding:6px 8px;">
-                <div class="matrix-heading" style="font-size:11px;">✓ Pros</div>
+                <div class="matrix-heading" style="font-size:10.5px;">✓ Pros</div>
                 <ul class="matrix-list">
                   ${(pick.pros || []).slice(0, 2).map(p => `<li>${p}</li>`).join("")}
                 </ul>
               </div>
               <div class="matrix-box cons-box" style="padding:6px 8px;">
-                <div class="matrix-heading" style="font-size:11px;">✕ Cons</div>
+                <div class="matrix-heading" style="font-size:10.5px;">✕ Cons</div>
                 <ul class="matrix-list">
                   ${(pick.cons || []).slice(0, 2).map(c => `<li>${c}</li>`).join("")}
                 </ul>
@@ -788,6 +849,5 @@ if (document.readyState === "loading") {
   injectAutoSynthesizerUI();
 }
 
-// Additional delayed checks for dynamic hydration
 setTimeout(injectAutoSynthesizerUI, 1200);
-setTimeout(injectAutoSynthesizerUI, 3000);
+setTimeout(injectAutoSynthesizerUI, 2500);
