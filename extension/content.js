@@ -1,7 +1,8 @@
 /**
  * Amazon Review Synthesizer - Content Script
  * Automatically detects Amazon Product & Search pages, automatically opens on-page synthesis UI
- * positioned in the top-right corner, and extracts verified customer reviews or search ranking data.
+ * positioned in the top-right corner, and extracts verified customer reviews, specifications,
+ * price, and features for individualized product analysis.
  */
 
 // --- Page Detection ---
@@ -54,10 +55,9 @@ function extractProductTitle() {
 }
 
 function extractProductRatingAndCount() {
-  let rating = 4.5;
+  let rating = 4.2;
   let reviewCount = "";
 
-  // Rating
   const ratingEl = document.querySelector('span[data-hook="rating-out-of-text"]') ||
                    document.querySelector('#acrPopover') ||
                    document.querySelector('.a-icon-star span') ||
@@ -67,7 +67,6 @@ function extractProductRatingAndCount() {
     if (match) rating = parseFloat(match[1]);
   }
 
-  // Count
   const countEl = document.getElementById("acrCustomerReviewText") ||
                   document.querySelector('span[data-hook="total-review-count"]');
   if (countEl && countEl.innerText) {
@@ -75,6 +74,39 @@ function extractProductRatingAndCount() {
   }
 
   return { rating, reviewCount };
+}
+
+function extractPrice() {
+  const p = document.querySelector('#apex_desktop .a-price .a-offscreen') ||
+            document.querySelector('#corePrice_feature_div .a-price .a-offscreen') ||
+            document.querySelector('.a-price .a-offscreen') ||
+            document.querySelector('.a-price-whole');
+  return p ? p.innerText.trim() : "";
+}
+
+function extractFeatures() {
+  const features = [];
+  document.querySelectorAll('#feature-bullets ul li span.a-list-item, #aboutTheItem ul li, #productDescription p').forEach((el) => {
+    const t = el.innerText ? el.innerText.trim() : el.textContent.trim();
+    if (t.length > 15 && features.length < 6) {
+      features.push(t);
+    }
+  });
+  return features;
+}
+
+function extractSpecs() {
+  const specs = {};
+  document.querySelectorAll('#productOverview_feature_div tr, #poExpander tr, #technicalSpecifications_section_1 tr').forEach((row) => {
+    const keyEl = row.querySelector('td.a-span3 span, th span, td:first-child span');
+    const valEl = row.querySelector('td.a-span9 span, td:last-child span');
+    if (keyEl && valEl) {
+      const k = keyEl.innerText.trim();
+      const v = valEl.innerText.trim();
+      if (k && v) specs[k] = v;
+    }
+  });
+  return specs;
 }
 
 function extractCustomerConsensus() {
@@ -88,30 +120,21 @@ function extractCustomerConsensus() {
 function extractReviewsFromDOM(maxCount = 20) {
   const reviews = [];
 
-  const reviewCards = document.querySelectorAll('div[data-hook="review"]');
-  reviewCards.forEach((card) => {
+  // Review cards & titles
+  document.querySelectorAll('div[data-hook="review"], div[id^="customer_review-"]').forEach((card) => {
     if (reviews.length >= maxCount) return;
-    const bodyEl = card.querySelector('span[data-hook="review-body"]') || 
-                   card.querySelector('.review-text-content span') ||
-                   card.querySelector('.review-text');
-    if (bodyEl) {
-      const text = bodyEl.innerText.trim();
-      if (text.length > 15) reviews.push(text);
-    }
+    const title = card.querySelector('[data-hook="review-title"] span, .review-title span');
+    const body = card.querySelector('[data-hook="review-body"] span, .review-text-content span, .review-text');
+    let combined = "";
+    if (title && title.innerText.trim()) combined += title.innerText.trim() + ": ";
+    if (body && body.innerText.trim()) combined += body.innerText.trim();
+    if (combined.length > 15) reviews.push(combined);
   });
-
-  if (reviews.length === 0) {
-    document.querySelectorAll('.review-text-content, [data-hook="review-collapsed"]').forEach((el) => {
-      if (reviews.length >= maxCount) return;
-      const text = el.innerText.trim();
-      if (text.length > 15) reviews.push(text);
-    });
-  }
 
   return reviews;
 }
 
-// Same-Origin Review Page Fetch (Carries active browser session without bot blocks)
+// Same-Origin Review Page Fetch with active session
 async function fetchSameOriginReviews(asin, maxCount = 15) {
   if (!asin) return [];
   try {
@@ -125,7 +148,7 @@ async function fetchSameOriginReviews(asin, maxCount = 15) {
 
     doc.querySelectorAll('span[data-hook="review-body"], .review-text-content span').forEach((el) => {
       if (reviews.length >= maxCount) return;
-      const text = el.innerText ? el.innerText.trim() : el.textContent.trim();
+      const text = (el.textContent || "").replace(/\s+/g, " ").trim();
       if (text.length > 15) reviews.push(text);
     });
 
@@ -207,6 +230,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const asin = extractASIN();
       const consensus = extractCustomerConsensus();
       const { rating, reviewCount } = extractProductRatingAndCount();
+      const features = extractFeatures();
+      const specs = extractSpecs();
+      const price = extractPrice();
 
       if (reviews.length < 3 && asin) {
         const directRevs = await fetchSameOriginReviews(asin);
@@ -221,6 +247,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         rating: rating,
         review_count: reviewCount,
         customer_consensus: consensus,
+        features: features,
+        specs: specs,
+        price: price,
         domain: window.location.hostname
       });
     })();
@@ -259,15 +288,15 @@ function injectAutoSynthesizerUI() {
     /* Minimized Floating Pill in Top-Right */
     .pill-btn {
       position: fixed;
-      top: 16px;
-      right: 16px;
+      top: 14px;
+      right: 14px;
       z-index: 9999999;
       background: linear-gradient(135deg, #1e293b, #0f172a);
       color: #38bdf8;
       border: 1px solid #38bdf8;
       border-radius: 50px;
-      padding: 8px 16px;
-      font-size: 12px;
+      padding: 7px 14px;
+      font-size: 11.5px;
       font-weight: 700;
       box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 189, 248, 0.4);
       cursor: pointer;
@@ -289,7 +318,7 @@ function injectAutoSynthesizerUI() {
       position: fixed;
       top: 14px;
       right: 14px;
-      width: 360px;
+      width: 350px;
       max-width: calc(100vw - 28px);
       max-height: calc(100vh - 28px);
       background: #0f172a;
@@ -314,7 +343,7 @@ function injectAutoSynthesizerUI() {
 
     /* Panel Header */
     .panel-header {
-      padding: 12px 14px;
+      padding: 11px 13px;
       background: #0f172a;
       border-bottom: 1px solid #1e293b;
       display: flex;
@@ -327,12 +356,12 @@ function injectAutoSynthesizerUI() {
       gap: 6px;
     }
     .header-branding h3 {
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 700;
       color: #f8fafc;
     }
     .status-badge {
-      font-size: 9.5px;
+      font-size: 9px;
       font-weight: 700;
       text-transform: uppercase;
       padding: 2px 6px;
@@ -350,14 +379,14 @@ function injectAutoSynthesizerUI() {
       background: #1e293b;
       border: 1px solid #334155;
       color: #94a3b8;
-      width: 24px;
-      height: 24px;
-      border-radius: 6px;
+      width: 22px;
+      height: 22px;
+      border-radius: 5px;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      font-size: 12px;
+      font-size: 11px;
       transition: all 0.15s ease;
     }
     .icon-btn:hover {
@@ -369,10 +398,10 @@ function injectAutoSynthesizerUI() {
     .panel-body {
       flex: 1;
       overflow-y: auto;
-      padding: 14px;
+      padding: 13px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 11px;
     }
 
     .panel-body::-webkit-scrollbar { width: 5px; }
@@ -384,14 +413,14 @@ function injectAutoSynthesizerUI() {
       background: #1e293b;
       border: 1px solid #334155;
       border-radius: 10px;
-      padding: 12px 14px;
+      padding: 11px 13px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 10px;
     }
     .product-title {
-      font-size: 12.5px;
+      font-size: 12px;
       font-weight: 600;
       color: #f1f5f9;
       display: -webkit-box;
@@ -401,38 +430,38 @@ function injectAutoSynthesizerUI() {
       line-height: 1.35;
     }
     .score-badge {
-      padding: 6px 10px;
+      padding: 5px 9px;
       border-radius: 8px;
       display: flex;
       align-items: baseline;
       font-weight: 800;
-      font-size: 19px;
+      font-size: 18px;
       line-height: 1;
       white-space: nowrap;
     }
     .score-badge.high { background: #064e3b; border: 1px solid #10b981; color: #34d399; }
     .score-badge.medium { background: #451a03; border: 1px solid #d97706; color: #fbbf24; }
     .score-badge.low { background: #4c0519; border: 1px solid #e11d48; color: #fb7185; }
-    .score-max { font-size: 10.5px; font-weight: 600; opacity: 0.8; margin-left: 1px; }
+    .score-max { font-size: 10px; font-weight: 600; opacity: 0.8; margin-left: 1px; }
 
     /* Pros & Cons Matrix */
     .matrix-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
+      gap: 9px;
     }
     .matrix-box {
       background: #1e293b;
       border-radius: 8px;
-      padding: 10px;
+      padding: 9px;
       border: 1px solid #334155;
     }
     .pros-box { border-top: 3px solid #10b981; }
     .cons-box { border-top: 3px solid #f43f5e; }
     .matrix-heading {
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 700;
-      margin-bottom: 6px;
+      margin-bottom: 5px;
       display: flex;
       align-items: center;
       gap: 4px;
@@ -446,10 +475,10 @@ function injectAutoSynthesizerUI() {
       gap: 5px;
     }
     .matrix-list li {
-      font-size: 11px;
+      font-size: 10.5px;
       color: #cbd5e1;
       position: relative;
-      padding-left: 10px;
+      padding-left: 9px;
       line-height: 1.35;
     }
     .matrix-list li::before {
@@ -464,31 +493,31 @@ function injectAutoSynthesizerUI() {
       background: #1e293b;
       border: 1px solid #334155;
       border-radius: 8px;
-      padding: 11px;
+      padding: 10px;
     }
     .section-header {
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 700;
       color: #e2e8f0;
-      margin-bottom: 8px;
+      margin-bottom: 7px;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
-    .dot { width: 6px; height: 6px; border-radius: 50%; }
+    .dot { width: 5px; height: 5px; border-radius: 50%; }
     .green-dot { background: #10b981; }
     .red-dot { background: #f43f5e; }
     .bullets {
       list-style: none;
       display: flex;
       flex-direction: column;
-      gap: 7px;
+      gap: 6px;
     }
     .bullets li {
-      font-size: 11px;
+      font-size: 10.5px;
       color: #cbd5e1;
       position: relative;
-      padding-left: 12px;
+      padding-left: 11px;
       line-height: 1.4;
     }
     .bullets li::before {
@@ -504,7 +533,7 @@ function injectAutoSynthesizerUI() {
       border: 1px solid #38bdf8;
       border-radius: 8px;
       padding: 10px;
-      font-size: 11.5px;
+      font-size: 11px;
       color: #e2e8f0;
       line-height: 1.4;
     }
@@ -515,7 +544,7 @@ function injectAutoSynthesizerUI() {
       padding: 10px;
       display: flex;
       flex-direction: column;
-      gap: 7px;
+      gap: 6px;
     }
     .pick-header {
       display: flex;
@@ -524,53 +553,53 @@ function injectAutoSynthesizerUI() {
       gap: 6px;
     }
     .pick-badge {
-      font-size: 9.5px;
+      font-size: 9px;
       font-weight: 700;
       text-transform: uppercase;
-      padding: 2px 6px;
+      padding: 2px 5px;
       border-radius: 4px;
       background: #172554;
       color: #60a5fa;
       border: 1px solid #1e40af;
       display: inline-block;
-      margin-bottom: 3px;
+      margin-bottom: 2px;
     }
     .pick-title {
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 600;
       color: #f8fafc;
       line-height: 1.3;
     }
     .pick-score {
-      font-size: 14.5px;
+      font-size: 14px;
       font-weight: 800;
       color: #34d399;
       background: #064e3b;
       border: 1px solid #10b981;
-      padding: 3px 6px;
+      padding: 2px 6px;
       border-radius: 5px;
       white-space: nowrap;
     }
     .pick-price {
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 700;
       color: #38bdf8;
     }
     .pick-verdict {
-      font-size: 11px;
+      font-size: 10.5px;
       color: #cbd5e1;
       font-style: italic;
       line-height: 1.35;
     }
     .pick-link-btn {
       align-self: flex-start;
-      margin-top: 3px;
+      margin-top: 2px;
       background: #2563eb;
       color: #ffffff;
       text-decoration: none;
-      padding: 4px 10px;
-      border-radius: 5px;
-      font-size: 10.5px;
+      padding: 3px 9px;
+      border-radius: 4px;
+      font-size: 10px;
       font-weight: 600;
       transition: background 0.15s ease;
     }
@@ -589,19 +618,19 @@ function injectAutoSynthesizerUI() {
       0% { background-position: 200% 0; }
       100% { background-position: -200% 0; }
     }
-    .sk-title { height: 50px; margin-bottom: 8px; }
-    .sk-matrix { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; height: 70px; margin-bottom: 8px; }
-    .sk-body { height: 90px; margin-bottom: 8px; }
-    .loading-subtext { text-align: center; color: #94a3b8; font-size: 11px; font-style: italic; }
+    .sk-title { height: 46px; margin-bottom: 7px; }
+    .sk-matrix { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; height: 65px; margin-bottom: 7px; }
+    .sk-body { height: 80px; margin-bottom: 7px; }
+    .loading-subtext { text-align: center; color: #94a3b8; font-size: 10.5px; font-style: italic; }
 
     /* Alert Box */
     .alert-card {
       background: #2a1215;
       border: 1px solid #881337;
       color: #fecdd3;
-      padding: 12px;
+      padding: 11px;
       border-radius: 8px;
-      font-size: 12px;
+      font-size: 11.5px;
       line-height: 1.4;
     }
   `;
@@ -619,7 +648,7 @@ function injectAutoSynthesizerUI() {
   panel.innerHTML = `
     <div class="panel-header">
       <div class="header-branding">
-        <span style="font-size:15px;">✨</span>
+        <span style="font-size:14px;">✨</span>
         <h3 id="panelHeaderTitle">${isProduct ? "Product Review Synthesizer" : "Search Synthesizer"}</h3>
         <span class="status-badge">Active</span>
       </div>
@@ -636,7 +665,7 @@ function injectAutoSynthesizerUI() {
       </div>
       <div class="skeleton sk-body"></div>
       <p class="loading-subtext" id="loadingCaption">
-        ${isProduct ? "Analyzing verified reviews & customer consensus..." : "Scanning top search items & comparing buying guide..."}
+        ${isProduct ? "Extracting product specifications & customer reviews..." : "Scanning top search items & comparing buying guide..."}
       </p>
     </div>
   `;
@@ -675,8 +704,10 @@ async function runProductAnalysis(container) {
   const domain = window.location.hostname;
   const consensus = extractCustomerConsensus();
   const { rating, reviewCount } = extractProductRatingAndCount();
+  const features = extractFeatures();
+  const specs = extractSpecs();
+  const price = extractPrice();
 
-  // If DOM review nodes are still hydrating or lazy-loaded, fetch via same-origin
   if (reviews.length < 3 && asin) {
     const directRevs = await fetchSameOriginReviews(asin);
     if (directRevs.length > 0) {
@@ -694,7 +725,10 @@ async function runProductAnalysis(container) {
         domain: domain,
         rating: rating,
         review_count: reviewCount,
-        customer_consensus: consensus
+        customer_consensus: consensus,
+        features: features,
+        specs: specs,
+        price: price
       }
     },
     (res) => {
@@ -718,7 +752,7 @@ async function runProductAnalysis(container) {
       container.innerHTML = `
         <div class="product-card">
           <div>
-            <span style="font-size:9.5px; font-weight:700; color:#38bdf8; text-transform:uppercase;">Verified Product</span>
+            <span style="font-size:9px; font-weight:700; color:#38bdf8; text-transform:uppercase;">Verified Product</span>
             <div class="product-title">${data.product_name || title}</div>
           </div>
           <div style="text-align:right;">
@@ -726,7 +760,7 @@ async function runProductAnalysis(container) {
               <span>${score.toFixed(1)}</span>
               <span class="score-max">/10</span>
             </div>
-            <span style="font-size:9px; color:#94a3b8; text-transform:uppercase;">Reliability</span>
+            <span style="font-size:8.5px; color:#94a3b8; text-transform:uppercase;">Reliability</span>
           </div>
         </div>
 
@@ -803,7 +837,7 @@ function runSearchAnalysis(container) {
           ${data.summary}
         </div>
 
-        <div style="font-size:11.5px; font-weight:700; color:#e2e8f0; margin-top:2px;">
+        <div style="font-size:11px; font-weight:700; color:#e2e8f0; margin-top:2px;">
           Top Recommended Picks
         </div>
 
@@ -821,13 +855,13 @@ function runSearchAnalysis(container) {
             
             <div class="matrix-grid" style="margin-top:3px;">
               <div class="matrix-box pros-box" style="padding:6px 8px;">
-                <div class="matrix-heading" style="font-size:10.5px;">✓ Pros</div>
+                <div class="matrix-heading" style="font-size:10px;">✓ Pros</div>
                 <ul class="matrix-list">
                   ${(pick.pros || []).slice(0, 2).map(p => `<li>${p}</li>`).join("")}
                 </ul>
               </div>
               <div class="matrix-box cons-box" style="padding:6px 8px;">
-                <div class="matrix-heading" style="font-size:10.5px;">✕ Cons</div>
+                <div class="matrix-heading" style="font-size:10px;">✕ Cons</div>
                 <ul class="matrix-list">
                   ${(pick.cons || []).slice(0, 2).map(c => `<li>${c}</li>`).join("")}
                 </ul>

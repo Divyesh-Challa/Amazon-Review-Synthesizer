@@ -17,7 +17,7 @@ logger = logging.getLogger("amazon_synthesizer")
 
 app = FastAPI(
     title="Amazon Review Synthesizer API",
-    version="1.2.0",
+    version="1.3.0",
     description="Backend service for synthesizing Amazon product reviews and search results with structured LLM output."
 )
 
@@ -35,7 +35,7 @@ async def root():
     return {
         "status": "online",
         "service": "Amazon Review Synthesizer API",
-        "version": "1.2.0",
+        "version": "1.3.0",
         "provider": settings.LLM_PROVIDER
     }
 
@@ -55,12 +55,12 @@ async def health_check():
 )
 async def analyze_reviews(payload: AnalyzeRequest):
     """
-    Ingests product title, raw review strings, ratings, and customer consensus,
+    Ingests product title, raw review strings, ratings, features, specs, and customer consensus,
     sanitizes content, runs LLM synthesis with guardrails,
-    and returns an objective breakdown.
+    and returns an objective, tailored breakdown.
     """
     start_time = time.perf_counter()
-    logger.info(f"Incoming product analysis for: {payload.product_title[:60]}... ({len(payload.reviews)} reviews, rating={payload.rating})")
+    logger.info(f"Incoming product analysis for: {payload.product_title[:60]}... ({len(payload.reviews)} reviews, rating={payload.rating}, price={payload.price})")
 
     if not payload.product_title.strip():
         raise HTTPException(
@@ -74,7 +74,10 @@ async def analyze_reviews(payload: AnalyzeRequest):
             raw_reviews=payload.reviews,
             rating=payload.rating,
             review_count=payload.review_count,
-            customer_consensus=payload.customer_consensus
+            customer_consensus=payload.customer_consensus,
+            features=payload.features,
+            specs=payload.specs,
+            price=payload.price
         )
         duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
         logger.info(f"Product synthesis completed in {duration_ms}ms with score: {result.score}")

@@ -44,7 +44,6 @@ async function fetchReviewsByAsin(domain, asin) {
 
     return reviews;
   } catch (err) {
-    // Silently return empty without triggering Chrome extension error logs
     return [];
   }
 }
@@ -71,7 +70,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             product_title: request.payload.product_title,
-            reviews: reviews
+            reviews: reviews,
+            rating: request.payload.rating,
+            review_count: request.payload.review_count,
+            customer_consensus: request.payload.customer_consensus,
+            features: request.payload.features || [],
+            specs: request.payload.specs || {},
+            price: request.payload.price || ""
           })
         });
 

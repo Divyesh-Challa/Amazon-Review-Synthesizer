@@ -1,13 +1,16 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 # Single Product Review Analysis
 class AnalyzeRequest(BaseModel):
     product_title: str = Field(..., description="Title of the Amazon product")
     reviews: List[str] = Field(default_factory=list, description="List of scraped review text strings")
-    rating: Optional[float] = Field(None, description="Average star rating, e.g. 4.0")
-    review_count: Optional[str] = Field(None, description="Total review count, e.g. 5,458")
+    rating: Optional[float] = Field(None, description="Average star rating, e.g. 4.8")
+    review_count: Optional[str] = Field(None, description="Total review count, e.g. '21' or '2,081'")
     customer_consensus: Optional[str] = Field(None, description="Amazon AI customer insights summary")
+    features: List[str] = Field(default_factory=list, description="About this item feature bullets")
+    specs: Dict[str, Any] = Field(default_factory=dict, description="Technical specifications (brand, resolution, etc.)")
+    price: Optional[str] = Field(None, description="Current price, e.g. '$87.99'")
 
 class ReviewSynthesisResponse(BaseModel):
     product_name: str = Field(..., description="Sanitized and readable product name")
