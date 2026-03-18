@@ -31,11 +31,22 @@ const resConsList = document.getElementById("resConsList");
 const resPositivesList = document.getElementById("resPositivesList");
 const resNegativesList = document.getElementById("resNegativesList");
 
+const popupReviewFilterInput = document.getElementById("popupReviewFilterInput");
+const productFilterChips = document.querySelectorAll("#successProductState .filter-chip");
+
 // Search View Elements
 const searchSummaryText = document.getElementById("searchSummaryText");
 const searchPicksContainer = document.getElementById("searchPicksContainer");
+const popupMaxPrice = document.getElementById("popupMaxPrice");
+const popupMinRating = document.getElementById("popupMinRating");
+const popupMinReviews = document.getElementById("popupMinReviews");
+const popupKeyword = document.getElementById("popupKeyword");
+const popupFilterCount = document.getElementById("popupFilterCount");
 
 let currentPageType = "unknown"; // "product", "search", "other"
+let currentProductData = null;
+let currentSearchPicks = [];
+let allScrapedSearchProducts = [];
 
 function showState(state) {
   readyState.classList.add("hidden");
@@ -164,7 +175,13 @@ async function runAnalysis() {
             product_title: extractionResponse.title,
             reviews: extractionResponse.reviews,
             asin: extractionResponse.asin,
-            domain: extractionResponse.domain
+            domain: extractionResponse.domain,
+            rating: extractionResponse.rating,
+            review_count: extractionResponse.review_count,
+            customer_consensus: extractionResponse.customer_consensus,
+            features: extractionResponse.features || [],
+            specs: extractionResponse.specs || {},
+            price: extractionResponse.price || ""
           }
         },
         (res) => {
@@ -172,6 +189,7 @@ async function runAnalysis() {
             showError("Backend Error", res ? res.error : "Backend offline at http://127.0.0.1:8000");
             return;
           }
+          currentProductData = res.data;
           renderProductResults(res.data);
           showState("success-product");
         }
@@ -193,12 +211,14 @@ async function runAnalysis() {
         throw new Error(searchResponse ? searchResponse.message : "Failed to scan search products.");
       }
 
+      allScrapedSearchProducts = searchResponse.products || [];
+
       chrome.runtime.sendMessage(
         {
           action: "ANALYZE_SEARCH",
           payload: {
             query: searchResponse.query,
-            products: searchResponse.products
+            products: allScrapedSearchProducts
           }
         },
         (res) => {
@@ -206,6 +226,7 @@ async function runAnalysis() {
             showError("Backend Error", res ? res.error : "Backend offline at http://127.0.0.1:8000");
             return;
           }
+          currentSearchPicks = res.data.top_picks || [];
           renderSearchResults(res.data);
           showState("success-search");
         }
@@ -231,44 +252,70 @@ function renderProductResults(data) {
     resScoreBadge.classList.add("low");
   }
 
-  // Pros
-  resProsList.innerHTML = "";
-  (data.pros || []).forEach(pro => {
-    const li = document.createElement("li");
-    li.textContent = pro;
-    resProsList.appendChild(li);
-  });
+  updateProductReviewLists();
+}
 
-  // Cons
-  resConsList.innerHTML = "";
-  (data.cons || []).forEach(con => {
-    const li = document.createElement("li");
-    li.textContent = con;
-    resConsList.appendChild(li);
-  });
+function updateProductReviewLists(keyword = "", topic = "all") {
+  if (!currentProductData) return;
+  const kw = keyword.toLowerCase().trim();
 
-  // Positive Reviews
-  resPositivesList.innerHTML = "";
-  (data.positive_reviews || []).forEach(item => {
-    const li = document.createElement("li");
-    li.textContent = item;
-    resPositivesList.appendChild(li);
-  });
+  function matches(text) {
+    if (!text) return false;
+    const t = text.toLowerCase();
+    if (kw && !t.includes(kw)) return false;
+    if (topic === "quality" && !t.includes("quality") && !t.includes("build") && !t.includes("material") && !t.includes("stand") && !t.includes("durab")) return false;
+    if (topic === "performance" && !t.includes("perform") && !t.includes("speed") && !t.includes("sound") && !t.includes("screen") && !t.includes("hz") && !t.includes("display")) return false;
+    if (topic === "price" && !t.includes("price") && !t.includes("cost") && !t.includes("value") && !t.includes("budget") && !t.includes("dollar")) return false;
+    return true;
+  }
 
-  // Negative Reviews
-  resNegativesList.innerHTML = "";
-  (data.negative_reviews || []).forEach(item => {
-    const li = document.createElement("li");
-    li.textContent = item;
-    resNegativesList.appendChild(li);
+  const pPros = (currentProductData.pros || []).filter(matches);
+  const pCons = (currentProductData.cons || []).filter(matches);
+  const pPos = (currentProductData.positive_reviews || []).filter(matches);
+  const pNeg = (currentProductData.negative_reviews || []).filter(matches);
+
+  resProsList.innerHTML = (pPros.length ? pPros : currentProductData.pros || []).map(p => `<li>${p}</li>`).join("");
+  resConsList.innerHTML = (pCons.length ? pCons : currentProductData.cons || []).map(c => `<li>${c}</li>`).join("");
+  resPositivesList.innerHTML = (pPos.length ? pPos : currentProductData.positive_reviews || []).map(r => `<li>${r}</li>`).join("");
+  resNegativesList.innerHTML = (pNeg.length ? pNeg : currentProductData.negative_reviews || []).map(r => `<li>${r}</li>`).join("");
+}
+
+// Wire product review filter inputs
+if (popupReviewFilterInput) {
+  popupReviewFilterInput.addEventListener("input", (e) => {
+    const activeChip = document.querySelector("#successProductState .filter-chip.active");
+    const topic = activeChip ? activeChip.getAttribute("data-topic") : "all";
+    updateProductReviewLists(e.target.value, topic);
   });
 }
 
+productFilterChips.forEach((chip) => {
+  chip.addEventListener("click", () => {
+    productFilterChips.forEach(c => c.classList.remove("active"));
+    chip.classList.add("active");
+    const topic = chip.getAttribute("data-topic");
+    const kw = popupReviewFilterInput ? popupReviewFilterInput.value : "";
+    updateProductReviewLists(kw, topic);
+  });
+});
+
 function renderSearchResults(data) {
   searchSummaryText.textContent = data.summary || "";
-  searchPicksContainer.innerHTML = "";
+  renderFilteredPicks(data.top_picks || []);
+}
 
-  (data.top_picks || []).forEach(pick => {
+function renderFilteredPicks(picks) {
+  searchPicksContainer.innerHTML = "";
+  if (!picks || picks.length === 0) {
+    searchPicksContainer.innerHTML = `
+      <div style="font-size:11px; color:#94a3b8; text-align:center; padding:12px;">
+        No picks match your filter criteria. Try adjusting the price or rating thresholds.
+      </div>
+    `;
+    return;
+  }
+
+  picks.forEach(pick => {
     const card = document.createElement("div");
     card.className = "product-preview";
     card.style.background = "#1e293b";
@@ -295,6 +342,41 @@ function renderSearchResults(data) {
     searchPicksContainer.appendChild(card);
   });
 }
+
+function applySearchFilters() {
+  const maxPrice = parseFloat(popupMaxPrice.value) || Infinity;
+  const minRating = parseFloat(popupMinRating.value) || 0;
+  const minReviews = parseInt(popupMinReviews.value) || 0;
+  const kw = (popupKeyword.value || "").toLowerCase().trim();
+
+  const filtered = currentSearchPicks.filter(p => {
+    // Check price
+    if (p.price) {
+      const match = p.price.replace(/,/g, "").match(/(\d+(\.\d+)?)/);
+      if (match && parseFloat(match[1]) > maxPrice) return false;
+    }
+    // Check score / rating
+    if (minRating > 0 && p.score < (minRating * 2.0 - 0.5)) return false;
+    // Check keyword
+    if (kw) {
+      const titleMatch = (p.title || "").toLowerCase().includes(kw);
+      const verdictMatch = (p.verdict || "").toLowerCase().includes(kw);
+      const prosMatch = (p.pros || []).some(pr => pr.toLowerCase().includes(kw));
+      if (!titleMatch && !verdictMatch && !prosMatch) return false;
+    }
+    return true;
+  });
+
+  popupFilterCount.textContent = `${filtered.length} of ${currentSearchPicks.length} picks`;
+  renderFilteredPicks(filtered);
+}
+
+[popupMaxPrice, popupMinRating, popupMinReviews, popupKeyword].forEach(input => {
+  if (input) {
+    input.addEventListener("input", applySearchFilters);
+    input.addEventListener("change", applySearchFilters);
+  }
+});
 
 analyzeBtn.addEventListener("click", runAnalysis);
 reanalyzeProductBtn.addEventListener("click", runAnalysis);

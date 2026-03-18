@@ -2,7 +2,8 @@
  * Amazon Review Synthesizer - Content Script
  * Automatically detects Amazon Product & Search pages, automatically opens on-page synthesis UI
  * positioned in the top-right corner, and extracts verified customer reviews, specifications,
- * price, and features for individualized product analysis.
+ * price, and features for individualized product analysis. Includes interactive filtering by
+ * price, rating, review count, and features/keywords.
  */
 
 // --- Page Detection ---
@@ -88,7 +89,7 @@ function extractFeatures() {
   const features = [];
   document.querySelectorAll('#feature-bullets ul li span.a-list-item, #aboutTheItem ul li, #productDescription p').forEach((el) => {
     const t = el.innerText ? el.innerText.trim() : el.textContent.trim();
-    if (t.length > 15 && features.length < 6) {
+    if (t.length > 15 && features.length < 8) {
       features.push(t);
     }
   });
@@ -120,7 +121,6 @@ function extractCustomerConsensus() {
 function extractReviewsFromDOM(maxCount = 20) {
   const reviews = [];
 
-  // Review cards & titles
   document.querySelectorAll('div[data-hook="review"], div[id^="customer_review-"]').forEach((card) => {
     if (reviews.length >= maxCount) return;
     const title = card.querySelector('[data-hook="review-title"] span, .review-title span');
@@ -158,7 +158,7 @@ async function fetchSameOriginReviews(asin, maxCount = 15) {
   }
 }
 
-// --- Data Extraction: Search Page ---
+// --- Data Extraction: Search Page (Extract up to 24 products for robust filtering) ---
 function extractSearchData() {
   const urlParams = new URLSearchParams(window.location.search);
   const searchInput = document.querySelector("#twotabsearchtextbox");
@@ -168,7 +168,7 @@ function extractSearchData() {
   const products = [];
 
   productCards.forEach((card) => {
-    if (products.length >= 8) return;
+    if (products.length >= 24) return;
 
     const isSponsored = card.querySelector('.puis-sponsored-label-text, .s-sponsored-label-text');
     
@@ -203,6 +203,20 @@ function extractSearchData() {
     const linkEl = card.querySelector('h2 a');
     const link = linkEl ? linkEl.href : "";
 
+    // Parse numeric price
+    let price_num = 0;
+    if (price && price !== "See Price") {
+      const match = price.replace(/,/g, "").match(/(\d+(\.\d+)?)/);
+      if (match) price_num = parseFloat(match[1]);
+    }
+
+    // Parse numeric review count
+    let review_count_num = 0;
+    if (review_count) {
+      const match = review_count.replace(/,/g, "").match(/(\d+)/);
+      if (match) review_count_num = parseInt(match[1]);
+    }
+
     products.push({
       title,
       asin,
@@ -210,7 +224,9 @@ function extractSearchData() {
       review_count,
       price,
       badge,
-      link
+      link,
+      price_num,
+      review_count_num
     });
   });
 
@@ -318,7 +334,7 @@ function injectAutoSynthesizerUI() {
       position: fixed;
       top: 14px;
       right: 14px;
-      width: 350px;
+      width: 360px;
       max-width: calc(100vw - 28px);
       max-height: calc(100vh - 28px);
       background: #0f172a;
@@ -407,6 +423,160 @@ function injectAutoSynthesizerUI() {
     .panel-body::-webkit-scrollbar { width: 5px; }
     .panel-body::-webkit-scrollbar-track { background: #0f172a; }
     .panel-body::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+    /* Filter Toolbar Styles */
+    .filter-section {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .filter-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .filter-header-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    .filter-badge {
+      font-size: 9px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: #0f172a;
+      color: #94a3b8;
+      border: 1px solid #334155;
+    }
+    .filter-drawer {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .filter-drawer.hidden {
+      display: none !important;
+    }
+    .filter-fields-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .filter-input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .filter-input-group label {
+      font-size: 9px;
+      color: #94a3b8;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .filter-input-group input, .filter-input-group select {
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #f8fafc;
+      padding: 4px 6px;
+      border-radius: 5px;
+      font-size: 10.5px;
+      outline: none;
+    }
+    .filter-input-group input:focus, .filter-input-group select:focus {
+      border-color: #38bdf8;
+    }
+    .filter-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 4px;
+      gap: 6px;
+    }
+    .filter-btn-reset {
+      background: transparent;
+      border: 1px solid #475569;
+      color: #94a3b8;
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .filter-btn-reset:hover {
+      color: #ffffff;
+      border-color: #94a3b8;
+    }
+    .filter-btn-apply {
+      background: #2563eb;
+      border: none;
+      color: #ffffff;
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: background 0.15s ease;
+    }
+    .filter-btn-apply:hover {
+      background: #1d4ed8;
+    }
+
+    /* Product Page Review Filter */
+    .review-filter-bar {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .review-search-input {
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #f8fafc;
+      padding: 4px 8px;
+      border-radius: 5px;
+      font-size: 10.5px;
+      width: 100%;
+      outline: none;
+    }
+    .review-search-input:focus {
+      border-color: #38bdf8;
+    }
+    .topic-chips-row {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .topic-chip {
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #94a3b8;
+      font-size: 9.5px;
+      padding: 2px 7px;
+      border-radius: 10px;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    .topic-chip.active {
+      background: #1e40af;
+      border-color: #3b82f6;
+      color: #ffffff;
+      font-weight: 600;
+    }
 
     /* Product Card */
     .product-card {
@@ -545,6 +715,7 @@ function injectAutoSynthesizerUI() {
       display: flex;
       flex-direction: column;
       gap: 6px;
+      transition: border-color 0.15s ease;
     }
     .pick-header {
       display: flex;
@@ -749,6 +920,12 @@ async function runProductAnalysis(container) {
       if (score < 5.0) scoreClass = "low";
       else if (score < 7.5) scoreClass = "medium";
 
+      // Store original bullets for filtering
+      const origPros = data.pros || [];
+      const origCons = data.cons || [];
+      const origPos = data.positive_reviews || [];
+      const origNeg = data.negative_reviews || [];
+
       container.innerHTML = `
         <div class="product-card">
           <div>
@@ -764,17 +941,28 @@ async function runProductAnalysis(container) {
           </div>
         </div>
 
+        <!-- Review Topic & Keyword Filter Bar -->
+        <div class="review-filter-bar">
+          <input type="text" class="review-search-input" id="reviewFilterInput" placeholder="🔍 Filter takeaways (e.g. stand, sound, screen)..." />
+          <div class="topic-chips-row" id="topicChipsRow">
+            <span class="topic-chip active" data-topic="all">All</span>
+            <span class="topic-chip" data-topic="quality">Build/Quality</span>
+            <span class="topic-chip" data-topic="performance">Performance</span>
+            <span class="topic-chip" data-topic="price">Price/Value</span>
+          </div>
+        </div>
+
         <div class="matrix-grid">
           <div class="matrix-box pros-box">
             <div class="matrix-heading"><span>✓</span> Pros</div>
-            <ul class="matrix-list">
-              ${(data.pros || []).map(p => `<li>${p}</li>`).join("")}
+            <ul class="matrix-list" id="prosListEl">
+              ${origPros.map(p => `<li>${p}</li>`).join("")}
             </ul>
           </div>
           <div class="matrix-box cons-box">
             <div class="matrix-heading"><span>✕</span> Cons</div>
-            <ul class="matrix-list">
-              ${(data.cons || []).map(c => `<li>${c}</li>`).join("")}
+            <ul class="matrix-list" id="consListEl">
+              ${origCons.map(c => `<li>${c}</li>`).join("")}
             </ul>
           </div>
         </div>
@@ -783,8 +971,8 @@ async function runProductAnalysis(container) {
           <div class="section-header">
             <span class="dot green-dot"></span> Positive Reviews
           </div>
-          <ul class="bullets">
-            ${(data.positive_reviews || []).map(r => `<li>${r}</li>`).join("")}
+          <ul class="bullets" id="posListEl">
+            ${origPos.map(r => `<li>${r}</li>`).join("")}
           </ul>
         </div>
 
@@ -792,16 +980,65 @@ async function runProductAnalysis(container) {
           <div class="section-header">
             <span class="dot red-dot"></span> Negative Reviews & Defects
           </div>
-          <ul class="bullets">
-            ${(data.negative_reviews || []).map(r => `<li>${r}</li>`).join("")}
+          <ul class="bullets" id="negListEl">
+            ${origNeg.map(r => `<li>${r}</li>`).join("")}
           </ul>
         </div>
       `;
+
+      // Wire up in-page review filter
+      const reviewFilterInput = container.querySelector("#reviewFilterInput");
+      const topicChips = container.querySelectorAll(".topic-chip");
+      const prosListEl = container.querySelector("#prosListEl");
+      const consListEl = container.querySelector("#consListEl");
+      const posListEl = container.querySelector("#posListEl");
+      const negListEl = container.querySelector("#negListEl");
+
+      let currentKeyword = "";
+      let currentTopic = "all";
+
+      function applyReviewFilters() {
+        const kw = currentKeyword.toLowerCase().trim();
+        
+        function matches(text) {
+          if (!text) return false;
+          const t = text.toLowerCase();
+          if (kw && !t.includes(kw)) return false;
+          if (currentTopic === "quality" && !t.includes("quality") && !t.includes("build") && !t.includes("material") && !t.includes("stand") && !t.includes("durab")) return false;
+          if (currentTopic === "performance" && !t.includes("perform") && !t.includes("speed") && !t.includes("sound") && !t.includes("screen") && !t.includes("hz") && !t.includes("display") && !t.includes("voice")) return false;
+          if (currentTopic === "price" && !t.includes("price") && !t.includes("cost") && !t.includes("value") && !t.includes("budget") && !t.includes("dollar")) return false;
+          return true;
+        }
+
+        const filteredPros = origPros.filter(matches);
+        const filteredCons = origCons.filter(matches);
+        const filteredPos = origPos.filter(matches);
+        const filteredNeg = origNeg.filter(matches);
+
+        prosListEl.innerHTML = (filteredPros.length ? filteredPros : origPros).map(p => `<li>${p}</li>`).join("");
+        consListEl.innerHTML = (filteredCons.length ? filteredCons : origCons).map(c => `<li>${c}</li>`).join("");
+        posListEl.innerHTML = (filteredPos.length ? filteredPos : origPos).map(r => `<li>${r}</li>`).join("");
+        negListEl.innerHTML = (filteredNeg.length ? filteredNeg : origNeg).map(r => `<li>${r}</li>`).join("");
+      }
+
+      reviewFilterInput.addEventListener("input", (e) => {
+        currentKeyword = e.target.value;
+        applyReviewFilters();
+      });
+
+      topicChips.forEach((chip) => {
+        chip.addEventListener("click", () => {
+          topicChips.forEach(c => c.classList.remove("active"));
+          chip.classList.add("active");
+          currentTopic = chip.getAttribute("data-topic");
+          applyReviewFilters();
+        });
+      });
     }
   );
 }
 
-// Automatic Search Page Comparative Synthesis
+// Automatic Search Page Comparative Synthesis with Live Interactive Filters
 function runSearchAnalysis(container) {
   const searchData = extractSearchData();
 
@@ -814,34 +1051,105 @@ function runSearchAnalysis(container) {
     return;
   }
 
-  chrome.runtime.sendMessage(
-    {
-      action: "ANALYZE_SEARCH",
-      payload: searchData
-    },
-    (res) => {
-      if (!res || !res.success) {
-        const err = res ? res.error : "Backend offline or unreachable";
-        container.innerHTML = `
-          <div class="alert-card">
-            <strong>Backend Connection Issue:</strong><br>${err}
-          </div>
+  const allScrapedProducts = searchData.products;
+
+  function executeSearchAnalysis(productsToAnalyze, isRefilter = false) {
+    if (isRefilter) {
+      const picksContainer = container.querySelector("#picksListContainer");
+      if (picksContainer) {
+        picksContainer.innerHTML = `
+          <div class="skeleton sk-body" style="height:120px;"></div>
+          <p class="loading-subtext">Updating AI Buying Guide with your filtered criteria...</p>
         `;
-        return;
       }
+    }
 
-      const data = res.data;
-      container.innerHTML = `
-        <div class="search-summary-card">
-          <strong>Buying Guide for "${data.query}":</strong><br>
-          ${data.summary}
+    chrome.runtime.sendMessage(
+      {
+        action: "ANALYZE_SEARCH",
+        payload: {
+          query: searchData.query,
+          products: productsToAnalyze
+        }
+      },
+      (res) => {
+        if (!res || !res.success) {
+          const err = res ? res.error : "Backend offline or unreachable";
+          container.innerHTML = `
+            <div class="alert-card">
+              <strong>Backend Connection Issue:</strong><br>${err}
+            </div>
+          `;
+          return;
+        }
+
+        const data = res.data;
+        renderSearchUI(data, allScrapedProducts, productsToAnalyze);
+      }
+    );
+  }
+
+  function renderSearchUI(synthesisData, allProducts, activeProducts) {
+    container.innerHTML = `
+      <div class="search-summary-card">
+        <strong>Buying Guide for "${synthesisData.query}":</strong><br>
+        ${synthesisData.summary}
+      </div>
+
+      <!-- Interactive Filter Section -->
+      <div class="filter-section">
+        <div class="filter-header-row" id="filterHeaderToggle">
+          <div class="filter-header-left">
+            <span>🎛️</span>
+            <span>Filter Search Results</span>
+            <span class="filter-badge" id="filterBadge">${activeProducts.length} of ${allProducts.length} items</span>
+          </div>
+          <span id="filterArrow" style="font-size:10px; color:#94a3b8;">▼</span>
         </div>
-
-        <div style="font-size:11px; font-weight:700; color:#e2e8f0; margin-top:2px;">
-          Top Recommended Picks
+        <div class="filter-drawer" id="filterDrawer">
+          <div class="filter-fields-grid">
+            <div class="filter-input-group">
+              <label>Max Price ($)</label>
+              <input type="number" id="filterMaxPrice" placeholder="No limit" min="0" />
+            </div>
+            <div class="filter-input-group">
+              <label>Min Rating</label>
+              <select id="filterMinRating">
+                <option value="0">Any Rating</option>
+                <option value="4.0">4.0★ & above</option>
+                <option value="4.3">4.3★ & above</option>
+                <option value="4.5">4.5★ & above</option>
+              </select>
+            </div>
+          </div>
+          <div class="filter-fields-grid">
+            <div class="filter-input-group">
+              <label>Min Reviews</label>
+              <select id="filterMinReviews">
+                <option value="0">Any Count</option>
+                <option value="50">50+ reviews</option>
+                <option value="200">200+ reviews</option>
+                <option value="1000">1,000+ reviews</option>
+              </select>
+            </div>
+            <div class="filter-input-group">
+              <label>Feature / Keyword</label>
+              <input type="text" id="filterKeyword" placeholder="e.g. 144Hz, curved, wireless..." />
+            </div>
+          </div>
+          <div class="filter-actions">
+            <button class="filter-btn-reset" id="filterResetBtn">Reset</button>
+            <button class="filter-btn-apply" id="filterApplyBtn">✨ Filter & AI Synthesize</button>
+          </div>
         </div>
+      </div>
 
-        ${(data.top_picks || []).map(pick => `
+      <div style="font-size:11px; font-weight:700; color:#e2e8f0; margin-top:2px;">
+        Top Recommended Picks
+      </div>
+
+      <div id="picksListContainer" style="display:flex; flex-direction:column; gap:7px;">
+        ${(synthesisData.top_picks || []).map(pick => `
           <div class="top-pick-card">
             <div class="pick-header">
               <div>
@@ -871,9 +1179,76 @@ function runSearchAnalysis(container) {
             ${pick.link ? `<a href="${pick.link}" class="pick-link-btn" target="_blank">View on Amazon →</a>` : ""}
           </div>
         `).join("")}
-      `;
+      </div>
+    `;
+
+    // Filter controls event wiring
+    const filterHeaderToggle = container.querySelector("#filterHeaderToggle");
+    const filterDrawer = container.querySelector("#filterDrawer");
+    const filterArrow = container.querySelector("#filterArrow");
+    const filterMaxPrice = container.querySelector("#filterMaxPrice");
+    const filterMinRating = container.querySelector("#filterMinRating");
+    const filterMinReviews = container.querySelector("#filterMinReviews");
+    const filterKeyword = container.querySelector("#filterKeyword");
+    const filterBadge = container.querySelector("#filterBadge");
+    const filterResetBtn = container.querySelector("#filterResetBtn");
+    const filterApplyBtn = container.querySelector("#filterApplyBtn");
+
+    filterHeaderToggle.addEventListener("click", () => {
+      const isHidden = filterDrawer.classList.toggle("hidden");
+      filterArrow.textContent = isHidden ? "▼" : "▲";
+    });
+
+    function getFilteredProducts() {
+      const maxPrice = parseFloat(filterMaxPrice.value) || Infinity;
+      const minRating = parseFloat(filterMinRating.value) || 0;
+      const minReviews = parseInt(filterMinReviews.value) || 0;
+      const kw = filterKeyword.value.toLowerCase().trim();
+
+      return allProducts.filter((p) => {
+        if (p.price_num && p.price_num > maxPrice) return false;
+        if (p.rating && p.rating < minRating) return false;
+        if (p.review_count_num && p.review_count_num < minReviews) return false;
+        if (kw) {
+          const matchTitle = (p.title || "").toLowerCase().includes(kw);
+          const matchBadge = (p.badge || "").toLowerCase().includes(kw);
+          if (!matchTitle && !matchBadge) return false;
+        }
+        return true;
+      });
     }
-  );
+
+    function updateLiveCount() {
+      const matched = getFilteredProducts();
+      filterBadge.textContent = `${matched.length} of ${allProducts.length} items`;
+    }
+
+    [filterMaxPrice, filterMinRating, filterMinReviews, filterKeyword].forEach((input) => {
+      input.addEventListener("input", updateLiveCount);
+      input.addEventListener("change", updateLiveCount);
+    });
+
+    filterResetBtn.addEventListener("click", () => {
+      filterMaxPrice.value = "";
+      filterMinRating.value = "0";
+      filterMinReviews.value = "0";
+      filterKeyword.value = "";
+      updateLiveCount();
+      executeSearchAnalysis(allProducts, true);
+    });
+
+    filterApplyBtn.addEventListener("click", () => {
+      const filtered = getFilteredProducts();
+      if (filtered.length === 0) {
+        alert("No products matched your exact filter criteria. Try adjusting the price or rating thresholds.");
+        return;
+      }
+      executeSearchAnalysis(filtered, true);
+    });
+  }
+
+  // Initial analysis execution
+  executeSearchAnalysis(allScrapedProducts);
 }
 
 // Automatically mount when DOM is ready

@@ -154,6 +154,31 @@ body::-webkit-scrollbar-thumb:hover {
   overflow: hidden;
 }
 
+/* Filter Chips */
+.filter-chip {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.filter-chip:hover {
+  color: #ffffff;
+  border-color: #64748b;
+}
+
+.filter-chip.active {
+  background: #1e40af;
+  border-color: #3b82f6;
+  color: #ffffff;
+  font-weight: 600;
+}
+
 /* Buttons */
 .btn {
   display: flex;

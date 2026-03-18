@@ -76,6 +76,17 @@
         </div>
       </div>
 
+      <!-- Review Topic & Keyword Filter Bar -->
+      <div class="product-preview" style="padding: 8px 10px; display:flex; flex-direction:column; gap:6px;">
+        <input type="text" id="popupReviewFilterInput" placeholder="🔍 Filter takeaways (e.g. stand, battery, sound)..." style="background:#0f172a; border:1px solid #334155; color:#f8fafc; padding:4px 8px; border-radius:5px; font-size:11px; outline:none;" />
+        <div style="display:flex; gap:4px; flex-wrap:wrap;">
+          <span class="filter-chip active" data-topic="all">All</span>
+          <span class="filter-chip" data-topic="quality">Quality</span>
+          <span class="filter-chip" data-topic="performance">Performance</span>
+          <span class="filter-chip" data-topic="price">Price/Value</span>
+        </div>
+      </div>
+
       <div class="matrix-grid">
         <div class="matrix-card pros-card">
           <div class="matrix-header">
@@ -119,6 +130,32 @@
       <div class="product-preview" style="border-color: #38bdf8;">
         <span class="preview-tag">Buying Guide</span>
         <p id="searchSummaryText" style="font-size:12px; color:#e2e8f0; line-height:1.4;"></p>
+      </div>
+
+      <!-- Search Filter Section -->
+      <div class="product-preview" style="padding: 8px 10px; display:flex; flex-direction:column; gap:6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:11px; font-weight:700; color:#38bdf8;">🎛️ Filters</span>
+          <span id="popupFilterCount" style="font-size:9.5px; color:#94a3b8;">All products</span>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+          <input type="number" id="popupMaxPrice" placeholder="Max Price ($)" min="0" style="background:#0f172a; border:1px solid #334155; color:#f8fafc; padding:3px 6px; border-radius:4px; font-size:10.5px;" />
+          <select id="popupMinRating" style="background:#0f172a; border:1px solid #334155; color:#f8fafc; padding:3px 6px; border-radius:4px; font-size:10.5px;">
+            <option value="0">Any Rating</option>
+            <option value="4.0">4.0★ & above</option>
+            <option value="4.3">4.3★ & above</option>
+            <option value="4.5">4.5★ & above</option>
+          </select>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+          <select id="popupMinReviews" style="background:#0f172a; border:1px solid #334155; color:#f8fafc; padding:3px 6px; border-radius:4px; font-size:10.5px;">
+            <option value="0">Any Count</option>
+            <option value="50">50+ reviews</option>
+            <option value="200">200+ reviews</option>
+            <option value="1000">1,000+ reviews</option>
+          </select>
+          <input type="text" id="popupKeyword" placeholder="Keyword (e.g. 144Hz)" style="background:#0f172a; border:1px solid #334155; color:#f8fafc; padding:3px 6px; border-radius:4px; font-size:10.5px;" />
+        </div>
       </div>
 
       <div style="font-size:12px; font-weight:700; color:#cbd5e1; margin-top:4px;">
