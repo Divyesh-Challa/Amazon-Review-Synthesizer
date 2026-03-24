@@ -347,22 +347,26 @@ function applySearchFilters() {
   const maxPrice = parseFloat(popupMaxPrice.value) || Infinity;
   const minRating = parseFloat(popupMinRating.value) || 0;
   const minReviews = parseInt(popupMinReviews.value) || 0;
-  const kw = (popupKeyword.value || "").toLowerCase().trim();
+  const rawKw = (popupKeyword.value || "").toLowerCase().trim();
+  const kwTerms = rawKw.split(/\s+/).filter(t => t.length > 0);
 
   const filtered = currentSearchPicks.filter(p => {
     // Check price
-    if (p.price) {
+    if (maxPrice < Infinity && p.price) {
       const match = p.price.replace(/,/g, "").match(/(\d+(\.\d+)?)/);
       if (match && parseFloat(match[1]) > maxPrice) return false;
     }
     // Check score / rating
     if (minRating > 0 && p.score < (minRating * 2.0 - 0.5)) return false;
     // Check keyword
-    if (kw) {
-      const titleMatch = (p.title || "").toLowerCase().includes(kw);
-      const verdictMatch = (p.verdict || "").toLowerCase().includes(kw);
-      const prosMatch = (p.pros || []).some(pr => pr.toLowerCase().includes(kw));
-      if (!titleMatch && !verdictMatch && !prosMatch) return false;
+    if (kwTerms.length > 0) {
+      const searchable = `${p.title || ""} ${p.badge || ""} ${p.verdict || ""} ${(p.pros || []).join(" ")}`.toLowerCase();
+      const matchesAll = kwTerms.every(term => {
+        if (searchable.includes(term)) return true;
+        if (term === "anki" && searchable.includes("anker")) return true;
+        return false;
+      });
+      if (!matchesAll) return false;
     }
     return true;
   });

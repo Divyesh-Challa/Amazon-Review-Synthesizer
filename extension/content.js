@@ -158,6 +158,122 @@ async function fetchSameOriginReviews(asin, maxCount = 15) {
   }
 }
 
+// --- Robust Search Card Parsers ---
+function parseSearchCardRating(card) {
+  // 1. Star class on <i> (e.g. a-star-small-4-5, a-star-4-5, a-star-4)
+  const starIcon = card.querySelector('i[class*="a-star-"]');
+  if (starIcon) {
+    const classMatch = starIcon.className.match(/a-star(?:-small)?-(\d)(?:-(\d))?/);
+    if (classMatch) {
+      const whole = classMatch[1];
+      const frac = classMatch[2] || "0";
+      const val = parseFloat(`${whole}.${frac}`);
+      if (!isNaN(val) && val >= 1.0 && val <= 5.0) return val;
+    }
+  }
+
+  // 2. Text in .a-icon-alt or aria-label
+  const ratingEl = card.querySelector('.a-icon-alt') ||
+                   card.querySelector('[aria-label*="out of 5 stars"]') ||
+                   card.querySelector('[aria-label*="sur 5 étoiles"]') ||
+                   card.querySelector('[aria-label*="stars"]') ||
+                   card.querySelector('.a-popover-trigger');
+  if (ratingEl) {
+    const raw = (ratingEl.textContent || ratingEl.innerText || ratingEl.getAttribute("aria-label") || "").trim();
+    const match = raw.replace(',', '.').match(/(\d+(\.\d+)?)/);
+    if (match) {
+      const val = parseFloat(match[1]);
+      if (!isNaN(val) && val >= 1.0 && val <= 5.0) return val;
+    }
+  }
+
+  return 4.2;
+}
+
+function parseSearchCardReviewCount(card) {
+  const candidates = [
+    card.querySelector('span.a-size-base.s-underline-text'),
+    card.querySelector('a[href*="customerReviews"] span'),
+    card.querySelector('a[href*="#customerReviews"] span'),
+    card.querySelector('a[href*="customerReviews"]'),
+    card.querySelector('span.s-underline-text'),
+    card.querySelector('div[data-cy="reviews-block"] span'),
+    card.querySelector('span[aria-label*="ratings"]'),
+    card.querySelector('span[aria-label*="reviews"]')
+  ];
+
+  let raw = "";
+  for (const el of candidates) {
+    if (!el) continue;
+    const txt = (el.textContent || el.innerText || el.getAttribute("aria-label") || "").trim();
+    if (!txt || /bought in/i.test(txt) || /past month/i.test(txt)) continue;
+    if (/\d/.test(txt)) {
+      raw = txt;
+      break;
+    }
+  }
+
+  if (!raw) {
+    const starIcon = card.querySelector('i[class*="a-star-"]');
+    if (starIcon && starIcon.parentElement) {
+      const parentRow = starIcon.parentElement.parentElement || starIcon.parentElement;
+      const spans = parentRow.querySelectorAll("span");
+      for (const sp of spans) {
+        const txt = (sp.textContent || "").trim();
+        if (/\d/.test(txt) && !/bought/i.test(txt) && !/out of 5/i.test(txt) && !/sur 5/i.test(txt)) {
+          raw = txt;
+          break;
+        }
+      }
+    }
+  }
+
+  raw = (raw || "100+").replace(/^\(/, "").replace(/\)$/, "").trim();
+
+  let num = 0;
+  // Parse K/M suffix (e.g. 98.9K, 80K, 65.1K, 1.2M)
+  const kMatch = raw.match(/([\d.,]+)\s*k/i);
+  if (kMatch) {
+    const cleaned = kMatch[1].replace(/,/g, ".");
+    const val = parseFloat(cleaned);
+    if (!isNaN(val)) num = Math.round(val * 1000);
+  } else {
+    const mMatch = raw.match(/([\d.,]+)\s*m/i);
+    if (mMatch) {
+      const cleaned = mMatch[1].replace(/,/g, ".");
+      const val = parseFloat(cleaned);
+      if (!isNaN(val)) num = Math.round(val * 1000000);
+    } else {
+      const digitsMatch = raw.replace(/,/g, "").match(/(\d+)/);
+      if (digitsMatch) num = parseInt(digitsMatch[1], 10);
+    }
+  }
+
+  return { text: raw, num: num || 0 };
+}
+
+function parseSearchCardPrice(card) {
+  let priceStr = "";
+  const offscreen = card.querySelector('.a-price .a-offscreen');
+  if (offscreen && offscreen.textContent.trim()) {
+    priceStr = offscreen.textContent.trim();
+  } else {
+    const whole = card.querySelector('.a-price-whole');
+    const frac = card.querySelector('.a-price-fraction');
+    if (whole) {
+      priceStr = `$${whole.textContent.replace(/[^\d]/g, "")}${frac ? "." + frac.textContent.replace(/[^\d]/g, "") : ""}`;
+    }
+  }
+
+  if (!priceStr) priceStr = "See Price";
+
+  let priceNum = 0;
+  const match = priceStr.replace(/,/g, "").match(/(\d+(\.\d+)?)/);
+  if (match) priceNum = parseFloat(match[1]);
+
+  return { price: priceStr, price_num: priceNum };
+}
+
 // --- Data Extraction: Search Page (Extract up to 24 products for robust filtering) ---
 function extractSearchData() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -174,27 +290,18 @@ function extractSearchData() {
     
     const titleEl = card.querySelector('h2 a span') || 
                     card.querySelector('h2 a.a-link-normal') || 
-                    card.querySelector('.a-text-normal');
+                    card.querySelector('h2 span') ||
+                    card.querySelector('h2 a') ||
+                    card.querySelector('.a-text-normal') ||
+                    card.querySelector('h2');
     if (!titleEl) return;
-    const title = titleEl.innerText.trim();
+    const title = (titleEl.textContent || titleEl.innerText || "").trim();
     if (!title || title.length < 5) return;
 
     const asin = card.getAttribute("data-asin") || "";
-
-    const ratingEl = card.querySelector('.a-icon-alt');
-    let rating = 4.5;
-    if (ratingEl && ratingEl.innerText) {
-      const parsed = parseFloat(ratingEl.innerText.split(" ")[0]);
-      if (!isNaN(parsed)) rating = parsed;
-    }
-
-    const countEl = card.querySelector('span.a-size-base.s-underline-text') ||
-                    card.querySelector('a[href*="customerReviews"] span');
-    const review_count = countEl ? countEl.innerText.trim() : "100+";
-
-    const priceEl = card.querySelector('.a-price .a-offscreen') || 
-                    card.querySelector('.a-price-whole');
-    const price = priceEl ? priceEl.innerText.trim() : "See Price";
+    const rating = parseSearchCardRating(card);
+    const { text: review_count, num: review_count_num } = parseSearchCardReviewCount(card);
+    const { price, price_num } = parseSearchCardPrice(card);
 
     const badgeEl = card.querySelector('.a-badge-text') || 
                     card.querySelector('.s-coupon-highlight-color');
@@ -202,20 +309,6 @@ function extractSearchData() {
 
     const linkEl = card.querySelector('h2 a');
     const link = linkEl ? linkEl.href : "";
-
-    // Parse numeric price
-    let price_num = 0;
-    if (price && price !== "See Price") {
-      const match = price.replace(/,/g, "").match(/(\d+(\.\d+)?)/);
-      if (match) price_num = parseFloat(match[1]);
-    }
-
-    // Parse numeric review count
-    let review_count_num = 0;
-    if (review_count) {
-      const match = review_count.replace(/,/g, "").match(/(\d+)/);
-      if (match) review_count_num = parseInt(match[1]);
-    }
 
     products.push({
       title,
@@ -1053,14 +1146,26 @@ function runSearchAnalysis(container) {
 
   const allScrapedProducts = searchData.products;
 
+  let activeFilterState = {
+    maxPrice: "",
+    minRating: "0",
+    minReviews: "0",
+    keyword: "",
+    drawerOpen: false
+  };
+
   function executeSearchAnalysis(productsToAnalyze, isRefilter = false) {
     if (isRefilter) {
       const picksContainer = container.querySelector("#picksListContainer");
       if (picksContainer) {
         picksContainer.innerHTML = `
           <div class="skeleton sk-body" style="height:120px;"></div>
-          <p class="loading-subtext">Updating AI Buying Guide with your filtered criteria...</p>
+          <p class="loading-subtext">Updating AI Buying Guide for your filtered criteria...</p>
         `;
+      }
+      const summaryEl = container.querySelector("#searchSummaryContent");
+      if (summaryEl) {
+        summaryEl.innerHTML = `<em>Refreshing recommendations for ${productsToAnalyze.length} products...</em>`;
       }
     }
 
@@ -1084,14 +1189,68 @@ function runSearchAnalysis(container) {
         }
 
         const data = res.data;
-        renderSearchUI(data, allScrapedProducts, productsToAnalyze);
+        if (isRefilter && container.querySelector("#picksListContainer")) {
+          // In-place update to preserve filter inputs, values, and focus
+          updateSearchPicksOnly(data, allScrapedProducts, productsToAnalyze);
+        } else {
+          renderSearchUI(data, allScrapedProducts, productsToAnalyze);
+        }
       }
     );
   }
 
+  function updateSearchPicksOnly(synthesisData, allProducts, activeProducts) {
+    const summaryEl = container.querySelector("#searchSummaryContent");
+    if (summaryEl) {
+      summaryEl.innerHTML = `
+        <strong>Buying Guide for "${synthesisData.query}":</strong><br>
+        ${synthesisData.summary}
+      `;
+    }
+
+    const filterBadge = container.querySelector("#filterBadge");
+    if (filterBadge) {
+      filterBadge.textContent = `${activeProducts.length} of ${allProducts.length} items`;
+    }
+
+    const picksContainer = container.querySelector("#picksListContainer");
+    if (picksContainer) {
+      picksContainer.innerHTML = (synthesisData.top_picks || []).map(pick => `
+        <div class="top-pick-card">
+          <div class="pick-header">
+            <div>
+              <span class="pick-badge">${pick.badge}</span>
+              <div class="pick-title">${pick.title}</div>
+              <span class="pick-price">${pick.price}</span>
+            </div>
+            <div class="pick-score">${pick.score.toFixed(1)}/10</div>
+          </div>
+          <div class="pick-verdict">"${pick.verdict}"</div>
+          
+          <div class="matrix-grid" style="margin-top:3px;">
+            <div class="matrix-box pros-box" style="padding:6px 8px;">
+              <div class="matrix-heading" style="font-size:10px;">✓ Pros</div>
+              <ul class="matrix-list">
+                ${(pick.pros || []).slice(0, 2).map(p => `<li>${p}</li>`).join("")}
+              </ul>
+            </div>
+            <div class="matrix-box cons-box" style="padding:6px 8px;">
+              <div class="matrix-heading" style="font-size:10px;">✕ Cons</div>
+              <ul class="matrix-list">
+                ${(pick.cons || []).slice(0, 2).map(c => `<li>${c}</li>`).join("")}
+              </ul>
+            </div>
+          </div>
+
+          ${pick.link ? `<a href="${pick.link}" class="pick-link-btn" target="_blank">View on Amazon →</a>` : ""}
+        </div>
+      `).join("");
+    }
+  }
+
   function renderSearchUI(synthesisData, allProducts, activeProducts) {
     container.innerHTML = `
-      <div class="search-summary-card">
+      <div class="search-summary-card" id="searchSummaryContent">
         <strong>Buying Guide for "${synthesisData.query}":</strong><br>
         ${synthesisData.summary}
       </div>
@@ -1104,21 +1263,21 @@ function runSearchAnalysis(container) {
             <span>Filter Search Results</span>
             <span class="filter-badge" id="filterBadge">${activeProducts.length} of ${allProducts.length} items</span>
           </div>
-          <span id="filterArrow" style="font-size:10px; color:#94a3b8;">▼</span>
+          <span id="filterArrow" style="font-size:10px; color:#94a3b8;">${activeFilterState.drawerOpen ? "▲" : "▼"}</span>
         </div>
-        <div class="filter-drawer" id="filterDrawer">
+        <div class="filter-drawer ${activeFilterState.drawerOpen ? "" : "hidden"}" id="filterDrawer">
           <div class="filter-fields-grid">
             <div class="filter-input-group">
               <label>Max Price ($)</label>
-              <input type="number" id="filterMaxPrice" placeholder="No limit" min="0" />
+              <input type="number" id="filterMaxPrice" placeholder="No limit" min="0" value="${activeFilterState.maxPrice}" />
             </div>
             <div class="filter-input-group">
               <label>Min Rating</label>
               <select id="filterMinRating">
-                <option value="0">Any Rating</option>
-                <option value="4.0">4.0★ & above</option>
-                <option value="4.3">4.3★ & above</option>
-                <option value="4.5">4.5★ & above</option>
+                <option value="0" ${activeFilterState.minRating === "0" ? "selected" : ""}>Any Rating</option>
+                <option value="4.0" ${activeFilterState.minRating === "4.0" ? "selected" : ""}>4.0★ & above</option>
+                <option value="4.3" ${activeFilterState.minRating === "4.3" ? "selected" : ""}>4.3★ & above</option>
+                <option value="4.5" ${activeFilterState.minRating === "4.5" ? "selected" : ""}>4.5★ & above</option>
               </select>
             </div>
           </div>
@@ -1126,15 +1285,15 @@ function runSearchAnalysis(container) {
             <div class="filter-input-group">
               <label>Min Reviews</label>
               <select id="filterMinReviews">
-                <option value="0">Any Count</option>
-                <option value="50">50+ reviews</option>
-                <option value="200">200+ reviews</option>
-                <option value="1000">1,000+ reviews</option>
+                <option value="0" ${activeFilterState.minReviews === "0" ? "selected" : ""}>Any Count</option>
+                <option value="50" ${activeFilterState.minReviews === "50" ? "selected" : ""}>50+ reviews</option>
+                <option value="200" ${activeFilterState.minReviews === "200" ? "selected" : ""}>200+ reviews</option>
+                <option value="1000" ${activeFilterState.minReviews === "1000" ? "selected" : ""}>1,000+ reviews</option>
               </select>
             </div>
             <div class="filter-input-group">
               <label>Feature / Keyword</label>
-              <input type="text" id="filterKeyword" placeholder="e.g. 144Hz, curved, wireless..." />
+              <input type="text" id="filterKeyword" placeholder="e.g. 144Hz, curved, wireless..." value="${activeFilterState.keyword}" />
             </div>
           </div>
           <div class="filter-actions">
@@ -1196,6 +1355,7 @@ function runSearchAnalysis(container) {
 
     filterHeaderToggle.addEventListener("click", () => {
       const isHidden = filterDrawer.classList.toggle("hidden");
+      activeFilterState.drawerOpen = !isHidden;
       filterArrow.textContent = isHidden ? "▼" : "▲";
     });
 
@@ -1203,16 +1363,29 @@ function runSearchAnalysis(container) {
       const maxPrice = parseFloat(filterMaxPrice.value) || Infinity;
       const minRating = parseFloat(filterMinRating.value) || 0;
       const minReviews = parseInt(filterMinReviews.value) || 0;
-      const kw = filterKeyword.value.toLowerCase().trim();
+      const rawKw = (filterKeyword.value || "").toLowerCase().trim();
+      const kwTerms = rawKw.split(/\s+/).filter(t => t.length > 0);
 
       return allProducts.filter((p) => {
-        if (p.price_num && p.price_num > maxPrice) return false;
-        if (p.rating && p.rating < minRating) return false;
-        if (p.review_count_num && p.review_count_num < minReviews) return false;
-        if (kw) {
-          const matchTitle = (p.title || "").toLowerCase().includes(kw);
-          const matchBadge = (p.badge || "").toLowerCase().includes(kw);
-          if (!matchTitle && !matchBadge) return false;
+        // Price check (only if maxPrice is finite and price is known)
+        if (maxPrice < Infinity && p.price_num > 0 && p.price_num > maxPrice) return false;
+        
+        // Rating check
+        if (minRating > 0 && (p.rating || 0) < minRating) return false;
+        
+        // Review count check
+        if (minReviews > 0 && (p.review_count_num || 0) < minReviews) return false;
+        
+        // Keyword / feature check
+        if (kwTerms.length > 0) {
+          const searchable = `${p.title || ""} ${p.badge || ""} ${p.price || ""}`.toLowerCase();
+          const matchesAll = kwTerms.every(term => {
+            if (searchable.includes(term)) return true;
+            // Common typo/shorthand e.g. "anki" -> "anker"
+            if (term === "anki" && searchable.includes("anker")) return true;
+            return false;
+          });
+          if (!matchesAll) return false;
         }
         return true;
       });
@@ -1228,11 +1401,21 @@ function runSearchAnalysis(container) {
       input.addEventListener("change", updateLiveCount);
     });
 
+    // Update live count immediately upon render
+    updateLiveCount();
+
     filterResetBtn.addEventListener("click", () => {
       filterMaxPrice.value = "";
       filterMinRating.value = "0";
       filterMinReviews.value = "0";
       filterKeyword.value = "";
+      activeFilterState = {
+        maxPrice: "",
+        minRating: "0",
+        minReviews: "0",
+        keyword: "",
+        drawerOpen: activeFilterState.drawerOpen
+      };
       updateLiveCount();
       executeSearchAnalysis(allProducts, true);
     });
@@ -1240,9 +1423,16 @@ function runSearchAnalysis(container) {
     filterApplyBtn.addEventListener("click", () => {
       const filtered = getFilteredProducts();
       if (filtered.length === 0) {
-        alert("No products matched your exact filter criteria. Try adjusting the price or rating thresholds.");
+        alert("No products matched your exact filter criteria. Try adjusting the price, rating, or review count thresholds.");
         return;
       }
+      activeFilterState = {
+        maxPrice: filterMaxPrice.value,
+        minRating: filterMinRating.value,
+        minReviews: filterMinReviews.value,
+        keyword: filterKeyword.value,
+        drawerOpen: !filterDrawer.classList.contains("hidden")
+      };
       executeSearchAnalysis(filtered, true);
     });
   }
