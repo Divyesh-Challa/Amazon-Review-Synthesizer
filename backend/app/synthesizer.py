@@ -53,8 +53,11 @@ def generate_dynamic_product_synthesis(
 
     # 1. Calculate Score
     r = rating if (rating and rating > 0) else 4.2
-    # Adjust score dynamically based on star rating and review count
-    base_score = round(min(9.8, max(5.0, (r / 5.0) * 9.5)), 1)
+    if not reviews and (rating is None or rating == 0):
+        base_score = 5.0
+    else:
+        # Adjust score dynamically based on star rating and review count
+        base_score = round(min(9.8, max(5.0, (r / 5.0) * 9.5)), 1)
 
     # 2. Extract Specific Attributes from specs and features
     pros: List[str] = []
@@ -135,8 +138,11 @@ def generate_dynamic_product_synthesis(
                 pos_quotes.append(rev[:130] + ("..." if len(rev) > 130 else ""))
     
     if not pos_quotes:
-        pos_quotes.append(f"Verified purchasers ({r}★ average) highlight smooth display responsiveness and easy plug-and-play setup.")
-        pos_quotes.append("Color accuracy and build quality meet or exceed expectations for this hardware class.")
+        if not reviews and (rating is None or rating == 0):
+            pos_quotes.append("No verified review text available. Based on initial listing specifications.")
+        else:
+            pos_quotes.append(f"Verified purchasers ({r}★ average) highlight smooth display responsiveness and easy plug-and-play setup.")
+            pos_quotes.append("Color accuracy and build quality meet or exceed expectations for this hardware class.")
 
     if not neg_quotes:
         neg_quotes.append("Some users note that factory color presets benefit from manual OSD calibration.")
@@ -257,6 +263,18 @@ def synthesize(
     cleaned_title = clean_product_title(product_title)
     api_key = settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY", "")
 
+    if not cleaned_reviews:
+        return mock_synthesize(
+            cleaned_title,
+            [],
+            rating,
+            review_count,
+            customer_consensus,
+            features,
+            specs,
+            price
+        )
+
     if settings.LLM_PROVIDER.lower() == "gemini" and api_key.strip():
         return gemini_synthesize(
             cleaned_title,
@@ -281,6 +299,19 @@ def synthesize(
             price
         )
 
+SEARCH_SYSTEM_PROMPT = """You are an expert e-commerce buying advisor.
+Analyze the provided list of Amazon search result products for the user's query.
+Produce:
+1. A concise, authoritative Buying Guide summary for the search category (2-3 sentences).
+2. Curated top recommendations (up to 8-12 items) with:
+   - Specific product badge (e.g., '🏆 Best Overall', '💰 Best Value', '⭐ Top Rated', '🔥 Popular Pick', '⚡ High Performance', '💎 Premium Choice', etc.)
+   - Normalized score from 0.0 to 10.0
+   - 1-2 sentence decisive verdict
+   - 2 specific pros reflecting actual product strengths and specs
+   - 1-2 honest cons/trade-offs
+Output strictly in JSON matching the SearchSynthesisResponse schema.
+"""
+
 def mock_synthesize_search(query: str, products: List[SearchProductItem]) -> SearchSynthesisResponse:
     if not products:
         return SearchSynthesisResponse(
@@ -294,21 +325,49 @@ def mock_synthesize_search(query: str, products: List[SearchProductItem]) -> Sea
         valid_products = products
 
     picks: List[TopPickItem] = []
-    badges = ["🏆 Best Overall", "💰 Best Value", "⭐ Top Rated", "🔥 Popular Pick"]
+    badges = [
+        "🏆 Best Overall",
+        "💰 Best Value",
+        "⭐ Top Rated",
+        "🔥 Popular Pick",
+        "⚡ High Performance",
+        "💎 Premium Choice",
+        "🎯 Editor's Pick",
+        "🌟 Verified Favorite",
+        "🚀 Trending Choice",
+        "🛡️ Most Durable",
+        "🔊 Top Audio",
+        "✨ Great Deal"
+    ]
 
-    for i, prod in enumerate(valid_products[:4]):
+    # Generate up to 12 top picks so user can scroll through comprehensive recommendations
+    max_picks = min(len(valid_products), 12)
+    for i, prod in enumerate(valid_products[:max_picks]):
         badge = prod.badge or badges[i % len(badges)]
         clean_title = clean_product_title(prod.title, max_chars=75)
         rating = prod.rating or 4.5
-        calculated_score = round(min(9.8, max(6.0, rating * 2.0 - (0.2 * i))), 1)
+        calculated_score = round(min(9.8, max(6.0, rating * 2.0 - (0.15 * i))), 1)
 
-        pros = [
-            f"Strong customer rating ({rating}★)",
-            "Proven reliability among verified buyers",
-            "Competitive feature set for its category"
-        ]
+        pros = []
+        if rating >= 4.5:
+            pros.append(f"Outstanding customer rating ({rating}★)")
+        elif rating >= 4.0:
+            pros.append(f"Solid customer rating ({rating}★)")
+        else:
+            pros.append(f"Competitive customer rating ({rating}★)")
+
+        if prod.review_count and prod.review_count != "0":
+            pros.append(f"Tested by {prod.review_count} verified buyers")
+        else:
+            pros.append("Verified customer satisfaction")
+
+        if prod.price and "$" in prod.price:
+            pros.append(f"Competitive price point at {prod.price}")
+        else:
+            pros.append("Strong price-to-performance ratio")
+
         cons = [
-            "Availability or deals may be time-sensitive",
+            "Deals and discounts may be time-sensitive",
             "Alternative models may offer niche specialized features"
         ]
 
@@ -320,8 +379,8 @@ def mock_synthesize_search(query: str, products: List[SearchProductItem]) -> Sea
             score=calculated_score,
             badge=badge,
             verdict=verdict,
-            pros=pros,
-            cons=cons,
+            pros=pros[:3],
+            cons=cons[:2],
             link=prod.link or ""
         ))
 
@@ -343,7 +402,7 @@ def gemini_synthesize_search(query: str, products: List[SearchProductItem], api_
 
         client = genai.Client(api_key=api_key)
         items_payload = []
-        for p in products[:8]:
+        for p in products[:12]:
             items_payload.append({
                 "title": p.title,
                 "price": p.price,

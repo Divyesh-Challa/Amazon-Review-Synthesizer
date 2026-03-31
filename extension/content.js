@@ -507,15 +507,31 @@ function injectAutoSynthesizerUI() {
     .panel-body {
       flex: 1;
       overflow-y: auto;
+      scroll-behavior: smooth;
       padding: 13px;
       display: flex;
       flex-direction: column;
       gap: 11px;
     }
 
-    .panel-body::-webkit-scrollbar { width: 5px; }
+    .panel-body::-webkit-scrollbar { width: 6px; }
     .panel-body::-webkit-scrollbar-track { background: #0f172a; }
-    .panel-body::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    .panel-body::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; border: 1px solid #1e293b; }
+    .panel-body::-webkit-scrollbar-thumb:hover { background: #38bdf8; }
+
+    #picksListContainer {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 440px;
+      overflow-y: auto;
+      scroll-behavior: smooth;
+      padding-right: 4px;
+    }
+    #picksListContainer::-webkit-scrollbar { width: 5px; }
+    #picksListContainer::-webkit-scrollbar-track { background: #0f172a; }
+    #picksListContainer::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    #picksListContainer::-webkit-scrollbar-thumb:hover { background: #38bdf8; }
 
     /* Filter Toolbar Styles */
     .filter-section {
@@ -1244,7 +1260,11 @@ function runSearchAnalysis(container) {
 
           ${pick.link ? `<a href="${pick.link}" class="pick-link-btn" target="_blank">View on Amazon →</a>` : ""}
         </div>
-      `).join("");
+      `).join("") + `
+        <div style="font-size:10px; color:#64748b; text-align:center; padding:8px 0; font-style:italic;">
+          Showing all ${(synthesisData.top_picks || []).length} curated products (scroll to explore)
+        </div>
+      `;
     }
   }
 
@@ -1303,8 +1323,9 @@ function runSearchAnalysis(container) {
         </div>
       </div>
 
-      <div style="font-size:11px; font-weight:700; color:#e2e8f0; margin-top:2px;">
-        Top Recommended Picks
+      <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; font-weight:700; color:#e2e8f0; margin-top:2px;">
+        <span>Curated Recommendations (${(synthesisData.top_picks || []).length})</span>
+        <span style="font-size:9.5px; color:#38bdf8; font-weight:600;">Scroll for all picks ↓</span>
       </div>
 
       <div id="picksListContainer" style="display:flex; flex-direction:column; gap:7px;">
@@ -1338,6 +1359,9 @@ function runSearchAnalysis(container) {
             ${pick.link ? `<a href="${pick.link}" class="pick-link-btn" target="_blank">View on Amazon →</a>` : ""}
           </div>
         `).join("")}
+        <div style="font-size:10px; color:#64748b; text-align:center; padding:8px 0; font-style:italic;">
+          Showing all ${(synthesisData.top_picks || []).length} curated products (scroll to explore)
+        </div>
       </div>
     `;
 

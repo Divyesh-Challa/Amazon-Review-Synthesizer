@@ -341,6 +341,15 @@ function renderFilteredPicks(picks) {
     `;
     searchPicksContainer.appendChild(card);
   });
+
+  const footer = document.createElement("div");
+  footer.style.fontSize = "10px";
+  footer.style.color = "#64748b";
+  footer.style.textAlign = "center";
+  footer.style.padding = "6px 0";
+  footer.style.fontStyle = "italic";
+  footer.textContent = `Showing all ${picks.length} curated products (scroll to explore)`;
+  searchPicksContainer.appendChild(footer);
 }
 
 function applySearchFilters() {

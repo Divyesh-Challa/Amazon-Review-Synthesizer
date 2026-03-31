@@ -158,11 +158,12 @@
         </div>
       </div>
 
-      <div style="font-size:12px; font-weight:700; color:#cbd5e1; margin-top:4px;">
-        Top Recommended Picks
+      <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:700; color:#cbd5e1; margin-top:4px;">
+        <span>Curated Recommendations</span>
+        <span style="font-size:10px; color:#38bdf8; font-weight:600;">Scroll for all picks ↓</span>
       </div>
 
-      <div id="searchPicksContainer" style="display:flex; flex-direction:column; gap:10px;"></div>
+      <div id="searchPicksContainer" style="display:flex; flex-direction:column; gap:10px; max-height:360px; overflow-y:auto; scroll-behavior:smooth; padding-right:2px;"></div>
 
       <div class="footer-actions">
         <button id="reanalyzeSearchBtn" class="btn secondary-btn">Re-analyze Search</button>

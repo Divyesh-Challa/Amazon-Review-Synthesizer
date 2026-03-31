@@ -503,3 +503,26 @@ body::-webkit-scrollbar-thumb:hover {
 .footer-actions {
   margin-top: 4px;
 }
+
+/* Scrollable Picks Container */
+#searchPicksContainer {
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+#searchPicksContainer::-webkit-scrollbar {
+  width: 5px;
+}
+
+#searchPicksContainer::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+#searchPicksContainer::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+#searchPicksContainer::-webkit-scrollbar-thumb:hover {
+  background: #38bdf8;
+}
