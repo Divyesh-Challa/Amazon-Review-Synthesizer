@@ -39,3 +39,7 @@ env/
 
 # Logs
 *.log
+
+# SQLite databases & data directory
+*.db
+backend/data/

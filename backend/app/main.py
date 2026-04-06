@@ -1,8 +1,11 @@
 import time
 import logging
-from fastapi import FastAPI, HTTPException, status
+from typing import Optional
+from fastapi import FastAPI, HTTPException, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
+from app.database import init_db, get_connection
+from app.auth import get_current_user_optional
 from app.schemas import (
     AnalyzeRequest,
     ReviewSynthesisResponse,
@@ -10,6 +13,10 @@ from app.schemas import (
     SearchSynthesisResponse
 )
 from app.synthesizer import synthesize, synthesize_search_results
+from app.routes.auth_routes import router as auth_router
+from app.routes.favorites_routes import router as favorites_router
+from app.routes.saved_searches_routes import router as saved_searches_router
+from app.routes.admin_routes import router as admin_router
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -17,8 +24,8 @@ logger = logging.getLogger("amazon_synthesizer")
 
 app = FastAPI(
     title="Amazon Review Synthesizer API",
-    version="1.3.0",
-    description="Backend service for synthesizing Amazon product reviews and search results with structured LLM output."
+    version="1.4.0",
+    description="Backend service for synthesizing Amazon reviews, managing user accounts, favorites, and admin metrics."
 )
 
 # Enable CORS for Chrome Extensions and local clients
@@ -30,12 +37,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount Routers
+app.include_router(auth_router)
+app.include_router(favorites_router)
+app.include_router(saved_searches_router)
+app.include_router(admin_router)
+
+@app.on_event("startup")
+async def on_startup():
+    logger.info("Initializing database...")
+    init_db()
+
 @app.get("/", tags=["Health"])
 async def root():
     return {
         "status": "online",
         "service": "Amazon Review Synthesizer API",
-        "version": "1.3.0",
+        "version": "1.4.0",
         "provider": settings.LLM_PROVIDER
     }
 
@@ -95,10 +113,11 @@ async def analyze_reviews(payload: AnalyzeRequest):
     status_code=status.HTTP_200_OK,
     tags=["Analysis"]
 )
-async def analyze_search_page(payload: SearchAnalyzeRequest):
+async def analyze_search_page(payload: SearchAnalyzeRequest, authorization: Optional[str] = Header(None)):
     """
     Ingests search query and top products scraped from Amazon search page,
     synthesizes comparative pros/cons, and recommends top picks.
+    Also logs metrics for the admin dashboard.
     """
     start_time = time.perf_counter()
     logger.info(f"Incoming search analysis for query '{payload.query}' ({len(payload.products)} products)")
@@ -108,6 +127,19 @@ async def analyze_search_page(payload: SearchAnalyzeRequest):
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="query cannot be empty"
         )
+
+    # Record search metric for admin visibility
+    user = get_current_user_optional(authorization)
+    user_id = user["id"] if user else None
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT INTO search_metrics (query, user_id, products_count) VALUES (?, ?, ?);",
+                (payload.query.strip(), user_id, len(payload.products))
+            )
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to record search metric: {e}")
 
     try:
         result = synthesize_search_results(payload.query, payload.products)

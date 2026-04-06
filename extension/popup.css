@@ -526,3 +526,229 @@ body::-webkit-scrollbar-thumb:hover {
 #searchPicksContainer::-webkit-scrollbar-thumb:hover {
   background: #38bdf8;
 }
+
+/* Account & Admin Header Controls */
+.account-header-btn {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.account-header-btn:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.save-item-btn {
+  background: transparent;
+  border: 1px solid #475569;
+  color: #cbd5e1;
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: all 0.15s ease;
+}
+
+.save-item-btn:hover {
+  background: #334155;
+  color: #ffffff;
+  border-color: #94a3b8;
+}
+
+.save-item-btn.saved {
+  background: #064e3b;
+  color: #34d399;
+  border-color: #10b981;
+}
+
+/* Account Modal Overlay */
+.account-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.97);
+  backdrop-filter: blur(6px);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.account-overlay.hidden {
+  display: none !important;
+}
+
+.account-nav {
+  display: flex;
+  gap: 5px;
+  border-bottom: 1px solid #334155;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.account-tab-btn {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.account-tab-btn:hover {
+  color: #ffffff;
+  background: #334155;
+}
+
+.account-tab-btn.active {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #3b82f6;
+}
+
+.account-tab-btn.admin-tab {
+  background: #701a75;
+  border-color: #a21caf;
+  color: #f5d0fe;
+}
+
+.account-tab-btn.admin-tab.active {
+  background: #a21caf;
+  color: #ffffff;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+
+.form-group label {
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.form-group input {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #f8fafc;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  outline: none;
+}
+
+.form-group input:focus {
+  border-color: #38bdf8;
+}
+
+.form-btn {
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.form-btn:hover {
+  background: #1d4ed8;
+}
+
+/* Admin Dashboard Elements */
+.metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.metric-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: center;
+}
+
+.metric-val {
+  font-size: 18px;
+  font-weight: 800;
+  color: #38bdf8;
+}
+
+.metric-lbl {
+  font-size: 9.5px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  margin-top: 6px;
+}
+
+.admin-table th, .admin-table td {
+  padding: 5px 6px;
+  text-align: left;
+  border-bottom: 1px solid #1e293b;
+}
+
+.admin-table th {
+  color: #94a3b8;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.admin-badge {
+  background: #701a75;
+  color: #f5d0fe;
+  border: 1px solid #a21caf;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 8.5px;
+  font-weight: 700;
+}
+
+.icon-btn {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.icon-btn:hover {
+  background: #334155;
+  color: #ffffff;
+}

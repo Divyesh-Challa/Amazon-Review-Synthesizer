@@ -1,12 +1,17 @@
 /**
  * Amazon Review Synthesizer - Content Script
- * Automatically detects Amazon Product & Search pages, automatically opens on-page synthesis UI
- * positioned in the top-right corner, and extracts verified customer reviews, specifications,
- * price, and features for individualized product analysis. Includes interactive filtering by
- * price, rating, review count, and features/keywords.
+ * 
+ * Features:
+ * 1. Automatic Product & Search page detection and in-page top-right docked panel.
+ * 2. Multi-page pagination awareness: automatically updates recommendations when navigating between search pages (Page 1, 2, 3, etc.).
+ * 3. Deep Cross-Page Scanning: scans across multiple Amazon pages (Pages 1-3) to pool 50-70+ items for simultaneous multi-page filtering.
+ * 4. User Accounts: Sign In, Registration, Session management.
+ * 5. Favorites & Saved Searches: Bookmark recommended items and save search filter configurations.
+ * 6. Admin Dashboard: Strictly for administrators to view total registered users, account rosters, activity metrics, top searches, and system health.
+ * 7. Smooth scrollable recommendations list with custom scrollbars.
  */
 
-// --- Page Detection ---
+// --- Page & URL Utilities ---
 function isAmazonProductPage() {
   const url = window.location.href;
   return /amazon\.(com|ca|co\.uk|de|fr|it|es|co\.jp|in|com\.au|com\.mx)/i.test(url) &&
@@ -19,7 +24,18 @@ function isAmazonSearchPage() {
          /\/s(\?|\/)|[?&]k=/i.test(url);
 }
 
-// --- Data Extraction: Product Page ---
+function getCurrentSearchPageNumber() {
+  const match = window.location.search.match(/[?&]page=(\d+)/);
+  return match ? parseInt(match[1], 10) : 1;
+}
+
+function getCurrentSearchQuery() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const searchInput = document.querySelector("#twotabsearchtextbox");
+  return urlParams.get("k") || (searchInput ? searchInput.value : "") || "Products";
+}
+
+// --- Data Extraction: Product Detail Page ---
 function extractASIN() {
   const asinInput = document.getElementById("ASIN") || document.querySelector('input[name="ASIN"]');
   if (asinInput && asinInput.value) return asinInput.value.trim();
@@ -51,7 +67,7 @@ function extractProductTitle() {
 
   let docTitle = document.title || "";
   docTitle = docTitle.replace(/amazon(\.ca|\.com)?\s*:\s*/i, "");
-  docTitle = docTitle.replace(/:\\s*amazon(\.ca|\.com)?/i, "");
+  docTitle = docTitle.replace(/:\s*amazon(\.ca|\.com)?/i, "");
   return docTitle.split(":")[0].trim() || "Amazon Product";
 }
 
@@ -64,7 +80,7 @@ function extractProductRatingAndCount() {
                    document.querySelector('.a-icon-star span') ||
                    document.querySelector('i[data-hook="average-star-rating"] span');
   if (ratingEl && ratingEl.innerText) {
-    const match = ratingEl.innerText.match(/(\d+(\.\d+)?)/);
+    const match = ratingEl.innerText.replace(',', '.').match(/(\d+(\.\d+)?)/);
     if (match) rating = parseFloat(match[1]);
   }
 
@@ -82,7 +98,7 @@ function extractPrice() {
             document.querySelector('#corePrice_feature_div .a-price .a-offscreen') ||
             document.querySelector('.a-price .a-offscreen') ||
             document.querySelector('.a-price-whole');
-  return p ? p.innerText.trim() : "";
+  return p ? (p.textContent || p.innerText || "").trim() : "";
 }
 
 function extractFeatures() {
@@ -120,7 +136,6 @@ function extractCustomerConsensus() {
 
 function extractReviewsFromDOM(maxCount = 20) {
   const reviews = [];
-
   document.querySelectorAll('div[data-hook="review"], div[id^="customer_review-"]').forEach((card) => {
     if (reviews.length >= maxCount) return;
     const title = card.querySelector('[data-hook="review-title"] span, .review-title span');
@@ -130,11 +145,9 @@ function extractReviewsFromDOM(maxCount = 20) {
     if (body && body.innerText.trim()) combined += body.innerText.trim();
     if (combined.length > 15) reviews.push(combined);
   });
-
   return reviews;
 }
 
-// Same-Origin Review Page Fetch with active session
 async function fetchSameOriginReviews(asin, maxCount = 15) {
   if (!asin) return [];
   try {
@@ -158,7 +171,7 @@ async function fetchSameOriginReviews(asin, maxCount = 15) {
   }
 }
 
-// --- Robust Search Card Parsers ---
+// --- Data Extraction: Search Page & Robust Card Parsing ---
 function parseSearchCardRating(card) {
   // 1. Star class on <i> (e.g. a-star-small-4-5, a-star-4-5, a-star-4)
   const starIcon = card.querySelector('i[class*="a-star-"]');
@@ -172,7 +185,7 @@ function parseSearchCardRating(card) {
     }
   }
 
-  // 2. Text in .a-icon-alt or aria-label
+  // 2. Text in .a-icon-alt or aria-label (handles 4.5 and 4,5 comma formats)
   const ratingEl = card.querySelector('.a-icon-alt') ||
                    card.querySelector('[aria-label*="out of 5 stars"]') ||
                    card.querySelector('[aria-label*="sur 5 étoiles"]') ||
@@ -274,56 +287,161 @@ function parseSearchCardPrice(card) {
   return { price: priceStr, price_num: priceNum };
 }
 
-// --- Data Extraction: Search Page (Extract up to 24 products for robust filtering) ---
-function extractSearchData() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const searchInput = document.querySelector("#twotabsearchtextbox");
-  const query = urlParams.get("k") || (searchInput ? searchInput.value : "") || "Products";
+function parseProductCard(card) {
+  const isSponsored = card.querySelector('.puis-sponsored-label-text, .s-sponsored-label-text');
+  
+  const titleEl = card.querySelector('h2 a span') || 
+                  card.querySelector('h2 a.a-link-normal') || 
+                  card.querySelector('h2 span') ||
+                  card.querySelector('h2 a') ||
+                  card.querySelector('.a-text-normal') ||
+                  card.querySelector('h2');
+  if (!titleEl) return null;
+  const title = (titleEl.textContent || titleEl.innerText || "").trim();
+  if (!title || title.length < 5) return null;
 
-  const productCards = document.querySelectorAll('div[data-component-type="s-search-result"]');
+  const asin = card.getAttribute("data-asin") || "";
+  const rating = parseSearchCardRating(card);
+  const { text: review_count, num: review_count_num } = parseSearchCardReviewCount(card);
+  const { price, price_num } = parseSearchCardPrice(card);
+
+  const badgeEl = card.querySelector('.a-badge-text') || 
+                  card.querySelector('.s-coupon-highlight-color');
+  const badge = badgeEl ? badgeEl.innerText.trim() : (isSponsored ? "Featured" : "");
+
+  const linkEl = card.querySelector('h2 a');
+  const link = linkEl ? linkEl.href : "";
+
+  return {
+    title,
+    asin,
+    rating,
+    review_count,
+    price,
+    badge,
+    link,
+    price_num,
+    review_count_num
+  };
+}
+
+function extractSearchData(doc = document) {
+  const query = getCurrentSearchQuery();
+  const productCards = doc.querySelectorAll('div[data-component-type="s-search-result"]');
   const products = [];
 
   productCards.forEach((card) => {
     if (products.length >= 24) return;
-
-    const isSponsored = card.querySelector('.puis-sponsored-label-text, .s-sponsored-label-text');
-    
-    const titleEl = card.querySelector('h2 a span') || 
-                    card.querySelector('h2 a.a-link-normal') || 
-                    card.querySelector('h2 span') ||
-                    card.querySelector('h2 a') ||
-                    card.querySelector('.a-text-normal') ||
-                    card.querySelector('h2');
-    if (!titleEl) return;
-    const title = (titleEl.textContent || titleEl.innerText || "").trim();
-    if (!title || title.length < 5) return;
-
-    const asin = card.getAttribute("data-asin") || "";
-    const rating = parseSearchCardRating(card);
-    const { text: review_count, num: review_count_num } = parseSearchCardReviewCount(card);
-    const { price, price_num } = parseSearchCardPrice(card);
-
-    const badgeEl = card.querySelector('.a-badge-text') || 
-                    card.querySelector('.s-coupon-highlight-color');
-    const badge = badgeEl ? badgeEl.innerText.trim() : (isSponsored ? "Featured" : "");
-
-    const linkEl = card.querySelector('h2 a');
-    const link = linkEl ? linkEl.href : "";
-
-    products.push({
-      title,
-      asin,
-      rating,
-      review_count,
-      price,
-      badge,
-      link,
-      price_num,
-      review_count_num
-    });
+    const prod = parseProductCard(card);
+    if (prod) products.push(prod);
   });
 
   return { query, products };
+}
+
+// Deep Multi-Page Search Scanning: Fetches Pages 1–3 in the background and pools products
+async function fetchDeepScanProducts(targetQuery, maxPages = 3, onProgress = null) {
+  const pooled = [];
+  const seenAsins = new Set();
+
+  // 1. Current page products
+  const currentData = extractSearchData(document);
+  currentData.products.forEach(p => {
+    if (p.asin && !seenAsins.has(p.asin)) {
+      seenAsins.add(p.asin);
+      pooled.push(p);
+    } else if (!p.asin) {
+      pooled.push(p);
+    }
+  });
+
+  if (onProgress) onProgress(1, maxPages, pooled.length);
+
+  // 2. Fetch subsequent pages
+  for (let page = 2; page <= maxPages; page++) {
+    try {
+      const pageUrl = new URL(window.location.href);
+      pageUrl.searchParams.set("page", page.toString());
+      pageUrl.searchParams.set("ref", `sr_pg_${page}`);
+
+      const resp = await fetch(pageUrl.toString(), { credentials: "same-origin" });
+      if (!resp.ok) continue;
+
+      const html = await resp.text();
+      const pageDoc = new DOMParser().parseFromString(html, "text/html");
+      const pageCards = pageDoc.querySelectorAll('div[data-component-type="s-search-result"]');
+
+      pageCards.forEach(card => {
+        const prod = parseProductCard(card);
+        if (prod) {
+          if (prod.asin && !seenAsins.has(prod.asin)) {
+            seenAsins.add(prod.asin);
+            pooled.push(prod);
+          } else if (!prod.asin) {
+            pooled.push(prod);
+          }
+        }
+      });
+
+      if (onProgress) onProgress(page, maxPages, pooled.length);
+    } catch (err) {
+      console.warn(`[Synthesizer] Failed to scan page ${page}:`, err);
+    }
+  }
+
+  return pooled;
+}
+
+// --- User Authentication & Session Storage Helpers ---
+async function getStoredAuthToken() {
+  return new Promise((resolve) => {
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(["userToken"], (result) => {
+        resolve(result ? result.userToken : null);
+      });
+    } else {
+      resolve(localStorage.getItem("synth_token"));
+    }
+  });
+}
+
+async function setStoredAuth(token, user) {
+  return new Promise((resolve) => {
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ userToken: token, currentUser: user }, resolve);
+    } else {
+      localStorage.setItem("synth_token", token);
+      localStorage.setItem("synth_user", JSON.stringify(user));
+      resolve();
+    }
+  });
+}
+
+async function clearStoredAuth() {
+  return new Promise((resolve) => {
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.remove(["userToken", "currentUser"], resolve);
+    } else {
+      localStorage.removeItem("synth_token");
+      localStorage.removeItem("synth_user");
+      resolve();
+    }
+  });
+}
+
+async function fetchMe() {
+  const token = await getStoredAuthToken();
+  if (!token) return null;
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ action: "AUTH_ME", token }, (res) => {
+      if (res && res.success) {
+        resolve({ ...res.data, token });
+      } else {
+        clearStoredAuth();
+        resolve(null);
+      }
+    });
+  });
 }
 
 // --- Listen to Popup Messages ---
@@ -377,16 +495,39 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // --- In-Page UI Injection ---
+let globalActivePageNumber = getCurrentSearchPageNumber();
+let globalActiveSearchQuery = getCurrentSearchQuery();
+let globalIsNavigating = false;
+
 function injectAutoSynthesizerUI() {
   const isProduct = isAmazonProductPage();
   const isSearch = isAmazonSearchPage();
 
   if (!isProduct && !isSearch) return;
-  if (document.getElementById("amz-synth-root")) return;
 
-  const root = document.createElement("div");
-  root.id = "amz-synth-root";
-  document.body.appendChild(root);
+  let root = document.getElementById("amz-synth-root");
+  if (!root) {
+    root = document.createElement("div");
+    root.id = "amz-synth-root";
+    document.body.appendChild(root);
+  }
+
+  // If already attached, check if search page or query changed
+  if (root.shadowRoot) {
+    if (isSearch) {
+      const currentQuery = getCurrentSearchQuery();
+      const currentPage = getCurrentSearchPageNumber();
+      if (currentQuery !== globalActiveSearchQuery || currentPage !== globalActivePageNumber) {
+        globalActiveSearchQuery = currentQuery;
+        globalActivePageNumber = currentPage;
+        const panelBody = root.shadowRoot.querySelector("#panelBody");
+        if (panelBody) {
+          runSearchAnalysis(panelBody, root.shadowRoot);
+        }
+      }
+    }
+    return;
+  }
 
   const shadow = root.attachShadow({ mode: "open" });
 
@@ -427,7 +568,7 @@ function injectAutoSynthesizerUI() {
       position: fixed;
       top: 14px;
       right: 14px;
-      width: 360px;
+      width: 380px;
       max-width: calc(100vw - 28px);
       max-height: calc(100vh - 28px);
       background: #0f172a;
@@ -452,7 +593,7 @@ function injectAutoSynthesizerUI() {
 
     /* Panel Header */
     .panel-header {
-      padding: 11px 13px;
+      padding: 10px 13px;
       background: #0f172a;
       border-bottom: 1px solid #1e293b;
       display: flex;
@@ -488,8 +629,9 @@ function injectAutoSynthesizerUI() {
       background: #1e293b;
       border: 1px solid #334155;
       color: #94a3b8;
-      width: 22px;
-      height: 22px;
+      min-width: 24px;
+      height: 24px;
+      padding: 0 6px;
       border-radius: 5px;
       display: flex;
       align-items: center;
@@ -501,6 +643,11 @@ function injectAutoSynthesizerUI() {
     .icon-btn:hover {
       background: #334155;
       color: #ffffff;
+    }
+    .icon-btn.account-active {
+      background: #1e3a8a;
+      border-color: #3b82f6;
+      color: #93c5fd;
     }
 
     /* Panel Content */
@@ -639,6 +786,56 @@ function injectAutoSynthesizerUI() {
     }
     .filter-btn-apply:hover {
       background: #1d4ed8;
+    }
+
+    .deep-scan-btn {
+      background: #0f172a;
+      border: 1px solid #3b82f6;
+      color: #60a5fa;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+    }
+    .deep-scan-btn:hover {
+      background: #1e3a8a;
+      color: #ffffff;
+    }
+    .deep-scan-btn.active {
+      background: #1d4ed8;
+      color: #ffffff;
+      border-color: #60a5fa;
+    }
+
+    /* Save button for items */
+    .save-item-btn {
+      background: transparent;
+      border: 1px solid #475569;
+      color: #cbd5e1;
+      font-size: 9.5px;
+      font-weight: 600;
+      padding: 3px 7px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      transition: all 0.15s ease;
+    }
+    .save-item-btn:hover {
+      background: #334155;
+      color: #ffffff;
+      border-color: #94a3b8;
+    }
+    .save-item-btn.saved {
+      background: #064e3b;
+      color: #34d399;
+      border-color: #10b981;
     }
 
     /* Product Page Review Filter */
@@ -871,9 +1068,13 @@ function injectAutoSynthesizerUI() {
       font-style: italic;
       line-height: 1.35;
     }
+    .pick-actions-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 4px;
+    }
     .pick-link-btn {
-      align-self: flex-start;
-      margin-top: 2px;
       background: #2563eb;
       color: #ffffff;
       text-decoration: none;
@@ -913,6 +1114,144 @@ function injectAutoSynthesizerUI() {
       font-size: 11.5px;
       line-height: 1.4;
     }
+
+    /* Account & Admin Modal Overlay */
+    .account-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.96);
+      backdrop-filter: blur(6px);
+      z-index: 10000;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 14px;
+      animation: fadeIn 0.2s ease-out;
+    }
+    .account-overlay.hidden { display: none !important; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .account-nav {
+      display: flex;
+      gap: 6px;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .account-tab-btn {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #94a3b8;
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 4px 9px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .account-tab-btn:hover { color: #f8fafc; background: #334155; }
+    .account-tab-btn.active {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #3b82f6;
+    }
+    .account-tab-btn.admin-tab {
+      background: #701a75;
+      border-color: #a21caf;
+      color: #f5d0fe;
+    }
+    .account-tab-btn.admin-tab.active {
+      background: #a21caf;
+      color: #ffffff;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-bottom: 8px;
+    }
+    .form-group label {
+      font-size: 10px;
+      color: #94a3b8;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .form-group input {
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #f8fafc;
+      padding: 6px 8px;
+      border-radius: 5px;
+      font-size: 11px;
+      outline: none;
+    }
+    .form-group input:focus { border-color: #38bdf8; }
+    
+    .form-btn {
+      background: #2563eb;
+      color: #ffffff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 5px;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 4px;
+    }
+    .form-btn:hover { background: #1d4ed8; }
+
+    /* Admin Metrics View */
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .metric-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 8px 10px;
+      text-align: center;
+    }
+    .metric-val {
+      font-size: 18px;
+      font-weight: 800;
+      color: #38bdf8;
+    }
+    .metric-lbl {
+      font-size: 9.5px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .admin-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+      margin-top: 6px;
+    }
+    .admin-table th, .admin-table td {
+      padding: 5px 6px;
+      text-align: left;
+      border-bottom: 1px solid #1e293b;
+    }
+    .admin-table th { color: #94a3b8; font-weight: 700; text-transform: uppercase; }
+    .admin-badge {
+      background: #701a75;
+      color: #f5d0fe;
+      border: 1px solid #a21caf;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 8.5px;
+      font-weight: 700;
+    }
   `;
   shadow.appendChild(style);
 
@@ -929,10 +1268,11 @@ function injectAutoSynthesizerUI() {
     <div class="panel-header">
       <div class="header-branding">
         <span style="font-size:14px;">✨</span>
-        <h3 id="panelHeaderTitle">${isProduct ? "Product Review Synthesizer" : "Search Synthesizer"}</h3>
-        <span class="status-badge">Active</span>
+        <h3 id="panelHeaderTitle">${isProduct ? "Product Review Synthesizer" : `Search Synthesizer (Pg ${globalActivePageNumber})`}</h3>
+        <span class="status-badge" id="panelLiveBadge">Live</span>
       </div>
       <div class="panel-controls">
+        <button class="icon-btn" id="accountBtn" title="User Account / Favorites / Admin">👤 Account</button>
         <button class="icon-btn" id="minimizeBtn" title="Minimize">–</button>
         <button class="icon-btn" id="closeBtn" title="Close">✕</button>
       </div>
@@ -945,8 +1285,18 @@ function injectAutoSynthesizerUI() {
       </div>
       <div class="skeleton sk-body"></div>
       <p class="loading-subtext" id="loadingCaption">
-        ${isProduct ? "Extracting product specifications & customer reviews..." : "Scanning top search items & comparing buying guide..."}
+        ${isProduct ? "Extracting product specifications & customer reviews..." : `Scanning products on Page ${globalActivePageNumber} & building buying guide...`}
       </p>
+    </div>
+
+    <!-- Account & Admin Overlay -->
+    <div class="account-overlay hidden" id="accountOverlay">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="font-size:13px; font-weight:700; color:#f8fafc;" id="accountModalTitle">👤 Account & Collections</h3>
+        <button class="icon-btn" id="closeAccountBtn" style="width:20px; height:20px; font-size:10px;">✕</button>
+      </div>
+      <div class="account-nav" id="accountNav"></div>
+      <div id="accountTabContent"></div>
     </div>
   `;
   shadow.appendChild(panel);
@@ -954,6 +1304,9 @@ function injectAutoSynthesizerUI() {
   const panelBody = panel.querySelector("#panelBody");
   const minimizeBtn = panel.querySelector("#minimizeBtn");
   const closeBtn = panel.querySelector("#closeBtn");
+  const accountBtn = panel.querySelector("#accountBtn");
+  const accountOverlay = panel.querySelector("#accountOverlay");
+  const closeAccountBtn = panel.querySelector("#closeAccountBtn");
 
   function minimizePanel() {
     panel.classList.add("hidden");
@@ -969,15 +1322,335 @@ function injectAutoSynthesizerUI() {
   closeBtn.addEventListener("click", minimizePanel);
   pillBtn.addEventListener("click", expandPanel);
 
+  // Wire up Account overlay
+  accountBtn.addEventListener("click", () => {
+    accountOverlay.classList.remove("hidden");
+    renderAccountDrawer(accountOverlay, shadow);
+  });
+  closeAccountBtn.addEventListener("click", () => {
+    accountOverlay.classList.add("hidden");
+  });
+
   if (isProduct) {
-    runProductAnalysis(panelBody);
+    runProductAnalysis(panelBody, shadow);
   } else if (isSearch) {
-    runSearchAnalysis(panelBody);
+    runSearchAnalysis(panelBody, shadow);
+  }
+}
+
+// --- Account, Favorites & Admin Console UI Renderer ---
+async function renderAccountDrawer(overlay, shadowRoot) {
+  const navEl = overlay.querySelector("#accountNav");
+  const contentEl = overlay.querySelector("#accountTabContent");
+  const currentUser = await fetchMe();
+
+  if (!currentUser) {
+    // Guest View: Tabs for Login & Register
+    navEl.innerHTML = `
+      <button class="account-tab-btn active" data-tab="login">Sign In</button>
+      <button class="account-tab-btn" data-tab="register">Create Account</button>
+    `;
+
+    function renderAuthForm(isRegister = false) {
+      contentEl.innerHTML = `
+        <div style="font-size:11px; color:#cbd5e1; margin-bottom:10px;">
+          ${isRegister ? "Create an account to save favorite items, track prices, and save searches." : "Sign in to access your saved items and search collections."}
+        </div>
+        ${isRegister ? `
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="authName" placeholder="Your name" />
+          </div>
+        ` : ""}
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="authEmail" placeholder="user@example.com" />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="authPassword" placeholder="••••••••" />
+        </div>
+        <div id="authErrorMsg" style="font-size:10.5px; color:#fb7185; margin:4px 0; min-height:16px;"></div>
+        <button class="form-btn" id="submitAuthBtn">${isRegister ? "Create Account" : "Sign In"}</button>
+      `;
+
+      const submitBtn = contentEl.querySelector("#submitAuthBtn");
+      const errorMsg = contentEl.querySelector("#authErrorMsg");
+
+      submitBtn.addEventListener("click", () => {
+        const email = contentEl.querySelector("#authEmail").value.trim();
+        const password = contentEl.querySelector("#authPassword").value;
+        const name = isRegister ? contentEl.querySelector("#authName").value.trim() : "";
+
+        if (!email || !password || (isRegister && !name)) {
+          errorMsg.textContent = "Please fill in all required fields.";
+          return;
+        }
+
+        submitBtn.textContent = "Processing...";
+        submitBtn.disabled = true;
+
+        const action = isRegister ? "AUTH_REGISTER" : "AUTH_LOGIN";
+        const payload = isRegister ? { email, password, name } : { email, password };
+
+        chrome.runtime.sendMessage({ action, payload }, async (res) => {
+          submitBtn.disabled = false;
+          submitBtn.textContent = isRegister ? "Create Account" : "Sign In";
+          if (!res || !res.success) {
+            errorMsg.textContent = res ? res.error : "Authentication failed.";
+            return;
+          }
+          await setStoredAuth(res.data.token, res.data.user);
+          renderAccountDrawer(overlay, shadowRoot);
+        });
+      });
+    }
+
+    renderAuthForm(false);
+
+    navEl.querySelectorAll(".account-tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        navEl.querySelectorAll(".account-tab-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        renderAuthForm(btn.getAttribute("data-tab") === "register");
+      });
+    });
+  } else {
+    // Logged In View
+    const isAdmin = currentUser.is_admin;
+    navEl.innerHTML = `
+      <button class="account-tab-btn active" data-tab="favorites">★ Favorites</button>
+      <button class="account-tab-btn" data-tab="searches">🔍 Saved Searches</button>
+      ${isAdmin ? `<button class="account-tab-btn admin-tab" data-tab="admin">👑 Admin Dashboard</button>` : ""}
+      <button class="account-tab-btn" data-tab="profile" style="margin-left:auto;">Logout (${currentUser.name})</button>
+    `;
+
+    async function loadTab(tabName) {
+      if (tabName === "profile") {
+        await clearStoredAuth();
+        renderAccountDrawer(overlay, shadowRoot);
+        return;
+      }
+
+      if (tabName === "favorites") {
+        contentEl.innerHTML = `<p class="loading-subtext">Loading saved favorites...</p>`;
+        chrome.runtime.sendMessage({ action: "FAVORITES_GET", token: currentUser.token }, (res) => {
+          if (!res || !res.success) {
+            contentEl.innerHTML = `<div class="alert-card">Failed to load favorites.</div>`;
+            return;
+          }
+          const favs = res.data || [];
+          if (favs.length === 0) {
+            contentEl.innerHTML = `
+              <div style="text-align:center; padding:20px; font-size:11px; color:#94a3b8;">
+                No saved items yet. Click <strong>★ Save</strong> on any product recommendation to bookmark it!
+              </div>
+            `;
+            return;
+          }
+          contentEl.innerHTML = `
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              ${favs.map(f => `
+                <div class="top-pick-card" style="padding:8px 10px;">
+                  <div class="pick-header">
+                    <div>
+                      <div class="pick-title">${f.title}</div>
+                      <span class="pick-price">${f.price || "N/A"}</span>
+                      ${f.score ? `<span style="font-size:10px; color:#34d399; margin-left:6px; font-weight:700;">${f.score.toFixed(1)}/10</span>` : ""}
+                    </div>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                    ${f.link ? `<a href="${f.link}" target="_blank" class="pick-link-btn" style="font-size:9.5px; padding:2px 7px;">View on Amazon →</a>` : "<span></span>"}
+                    <button class="icon-btn delete-fav-btn" data-fav-id="${f.id}" title="Remove" style="width:20px; height:20px; color:#f43f5e;">✕</button>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+          `;
+
+          contentEl.querySelectorAll(".delete-fav-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+              const favId = btn.getAttribute("data-fav-id");
+              chrome.runtime.sendMessage({ action: "FAVORITES_DELETE", favorite_id: favId, token: currentUser.token }, () => {
+                loadTab("favorites");
+              });
+            });
+          });
+        });
+      }
+
+      if (tabName === "searches") {
+        contentEl.innerHTML = `<p class="loading-subtext">Loading saved searches...</p>`;
+        chrome.runtime.sendMessage({ action: "SAVED_SEARCHES_GET", token: currentUser.token }, (res) => {
+          if (!res || !res.success) {
+            contentEl.innerHTML = `<div class="alert-card">Failed to load saved searches.</div>`;
+            return;
+          }
+          const searches = res.data || [];
+          if (searches.length === 0) {
+            contentEl.innerHTML = `
+              <div style="text-align:center; padding:20px; font-size:11px; color:#94a3b8;">
+                No saved searches yet. Click <strong>💾 Save Search</strong> in the Filter toolbar to bookmark searches!
+              </div>
+            `;
+            return;
+          }
+          contentEl.innerHTML = `
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              ${searches.map(s => `
+                <div class="product-preview" style="padding:8px 10px; display:flex; justify-content:space-between; align-items:center;">
+                  <div>
+                    <span class="preview-tag">Search Collection</span>
+                    <strong style="font-size:12px; color:#f8fafc;">"${s.query}"</strong>
+                    <div style="font-size:9.5px; color:#94a3b8;">Saved: ${s.created_at ? s.created_at.split("T")[0] : "Recently"}</div>
+                  </div>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <a href="/s?k=${encodeURIComponent(s.query)}" class="pick-link-btn" style="font-size:9.5px; padding:2px 7px;">Search →</a>
+                    <button class="icon-btn delete-search-btn" data-search-id="${s.id}" title="Remove" style="width:20px; height:20px; color:#f43f5e;">✕</button>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+          `;
+
+          contentEl.querySelectorAll(".delete-search-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+              const sId = btn.getAttribute("data-search-id");
+              chrome.runtime.sendMessage({ action: "SAVED_SEARCHES_DELETE", search_id: sId, token: currentUser.token }, () => {
+                loadTab("searches");
+              });
+            });
+          });
+        });
+      }
+
+      if (tabName === "admin" && isAdmin) {
+        contentEl.innerHTML = `<p class="loading-subtext">Loading admin metrics & users...</p>`;
+        chrome.runtime.sendMessage({ action: "ADMIN_GET_METRICS", token: currentUser.token }, (res) => {
+          if (!res || !res.success) {
+            contentEl.innerHTML = `<div class="alert-card">Admin access restricted or offline.</div>`;
+            return;
+          }
+          const m = res.data;
+          contentEl.innerHTML = `
+            <div style="margin-bottom:10px;">
+              <span class="admin-badge">ADMIN CONSOLE</span>
+              <div style="font-size:12px; font-weight:700; color:#f8fafc; margin-top:2px;">User Growth & Platform Telemetry</div>
+            </div>
+
+            <div class="metric-grid">
+              <div class="metric-card">
+                <div class="metric-val">${m.total_users}</div>
+                <div class="metric-lbl">Registered Users</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-val">${m.total_active_sessions}</div>
+                <div class="metric-lbl">Active Sessions</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-val">${m.total_favorites}</div>
+                <div class="metric-lbl">Total Favorites</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-val">${m.total_search_syntheses}</div>
+                <div class="metric-lbl">Search Syntheses</div>
+              </div>
+            </div>
+
+            <!-- User Accounts Roster -->
+            <div style="font-size:11px; font-weight:700; color:#e2e8f0; margin:10px 0 4px 0;">
+              Registered Accounts (${(m.recent_users || []).length})
+            </div>
+            <div style="max-height:160px; overflow-y:auto; border:1px solid #334155; border-radius:6px; background:#0f172a;">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Role</th>
+                    <th>Saved</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(m.recent_users || []).map(u => `
+                    <tr>
+                      <td>
+                        <strong>${u.name}</strong><br>
+                        <span style="color:#94a3b8; font-size:8.5px;">${u.email}</span>
+                      </td>
+                      <td>${u.is_admin ? '<span class="admin-badge">Admin</span>' : '<span style="color:#94a3b8;">User</span>'}</td>
+                      <td>${u.favorites_count} favs</td>
+                      <td>
+                        ${u.id !== currentUser.id ? `
+                          <button class="icon-btn delete-user-btn" data-user-id="${u.id}" title="Delete User" style="width:18px; height:18px; font-size:9px; color:#f43f5e;">✕</button>
+                        ` : `<span style="font-size:8.5px; color:#64748b;">(You)</span>`}
+                      </td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Popular Queries & Top Favorites -->
+            <div style="margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+              <div style="background:#1e293b; border:1px solid #334155; border-radius:6px; padding:8px;">
+                <div style="font-size:10px; font-weight:700; color:#38bdf8; text-transform:uppercase;">Top Searches</div>
+                <ul style="list-style:none; margin-top:4px; font-size:10px; color:#cbd5e1;">
+                  ${(m.popular_queries || []).slice(0, 4).map(q => `
+                    <li style="display:flex; justify-content:space-between; padding:2px 0;">
+                      <span>"${q.query}"</span>
+                      <strong style="color:#94a3b8;">${q.count}x</strong>
+                    </li>
+                  `).join("") || "<li>No searches yet</li>"}
+                </ul>
+              </div>
+
+              <div style="background:#1e293b; border:1px solid #334155; border-radius:6px; padding:8px;">
+                <div style="font-size:10px; font-weight:700; color:#38bdf8; text-transform:uppercase;">Top Favorited</div>
+                <ul style="list-style:none; margin-top:4px; font-size:10px; color:#cbd5e1;">
+                  ${(m.top_favorited_products || []).slice(0, 4).map(f => `
+                    <li style="padding:2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                      <span title="${f.title}">${f.title.substring(0, 18)}...</span>
+                      <strong style="color:#34d399;"> (${f.favorite_count}★)</strong>
+                    </li>
+                  `).join("") || "<li>No favorites yet</li>"}
+                </ul>
+              </div>
+            </div>
+
+            <div style="font-size:9.5px; color:#64748b; text-align:center; margin-top:10px;">
+              Backend: ${m.system_status.database} | Provider: ${m.system_status.llm_provider} | Status: Healthy
+            </div>
+          `;
+
+          contentEl.querySelectorAll(".delete-user-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+              const uId = btn.getAttribute("data-user-id");
+              if (confirm(`Are you sure you want to delete user ID ${uId}?`)) {
+                chrome.runtime.sendMessage({ action: "ADMIN_DELETE_USER", user_id: uId, token: currentUser.token }, () => {
+                  loadTab("admin");
+                });
+              }
+            });
+          });
+        });
+      }
+    }
+
+    loadTab("favorites");
+
+    navEl.querySelectorAll(".account-tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        navEl.querySelectorAll(".account-tab-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        loadTab(btn.getAttribute("data-tab"));
+      });
+    });
   }
 }
 
 // Automatic Product Page Review Synthesis
-async function runProductAnalysis(container) {
+async function runProductAnalysis(container, shadowRoot) {
   const title = extractProductTitle();
   let reviews = extractReviewsFromDOM(20);
   const asin = extractASIN();
@@ -990,9 +1663,7 @@ async function runProductAnalysis(container) {
 
   if (reviews.length < 3 && asin) {
     const directRevs = await fetchSameOriginReviews(asin);
-    if (directRevs.length > 0) {
-      reviews = directRevs;
-    }
+    if (directRevs.length > 0) reviews = directRevs;
   }
 
   chrome.runtime.sendMessage(
@@ -1029,7 +1700,6 @@ async function runProductAnalysis(container) {
       if (score < 5.0) scoreClass = "low";
       else if (score < 7.5) scoreClass = "medium";
 
-      // Store original bullets for filtering
       const origPros = data.pros || [];
       const origCons = data.cons || [];
       const origPos = data.positive_reviews || [];
@@ -1038,7 +1708,10 @@ async function runProductAnalysis(container) {
       container.innerHTML = `
         <div class="product-card">
           <div>
-            <span style="font-size:9px; font-weight:700; color:#38bdf8; text-transform:uppercase;">Verified Product</span>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:9px; font-weight:700; color:#38bdf8; text-transform:uppercase;">Verified Product</span>
+              <button class="save-item-btn" id="saveProductBtn">★ Save</button>
+            </div>
             <div class="product-title">${data.product_name || title}</div>
           </div>
           <div style="text-align:right;">
@@ -1095,7 +1768,37 @@ async function runProductAnalysis(container) {
         </div>
       `;
 
-      // Wire up in-page review filter
+      // Wire save product
+      const saveBtn = container.querySelector("#saveProductBtn");
+      saveBtn.addEventListener("click", async () => {
+        const user = await fetchMe();
+        if (!user) {
+          const overlay = shadowRoot.querySelector("#accountOverlay");
+          overlay.classList.remove("hidden");
+          renderAccountDrawer(overlay, shadowRoot);
+          return;
+        }
+        chrome.runtime.sendMessage({
+          action: "FAVORITES_ADD",
+          token: user.token,
+          payload: {
+            asin: asin || "",
+            title: data.product_name || title,
+            price: price || "",
+            rating: rating,
+            score: score,
+            link: window.location.href,
+            badge: "Product Detail"
+          }
+        }, (resp) => {
+          if (resp && resp.success) {
+            saveBtn.textContent = "★ Saved!";
+            saveBtn.classList.add("saved");
+          }
+        });
+      });
+
+      // Wire review filters
       const reviewFilterInput = container.querySelector("#reviewFilterInput");
       const topicChips = container.querySelectorAll(".topic-chip");
       const prosListEl = container.querySelector("#prosListEl");
@@ -1108,13 +1811,12 @@ async function runProductAnalysis(container) {
 
       function applyReviewFilters() {
         const kw = currentKeyword.toLowerCase().trim();
-        
         function matches(text) {
           if (!text) return false;
           const t = text.toLowerCase();
           if (kw && !t.includes(kw)) return false;
           if (currentTopic === "quality" && !t.includes("quality") && !t.includes("build") && !t.includes("material") && !t.includes("stand") && !t.includes("durab")) return false;
-          if (currentTopic === "performance" && !t.includes("perform") && !t.includes("speed") && !t.includes("sound") && !t.includes("screen") && !t.includes("hz") && !t.includes("display") && !t.includes("voice")) return false;
+          if (currentTopic === "performance" && !t.includes("perform") && !t.includes("speed") && !t.includes("sound") && !t.includes("screen") && !t.includes("hz") && !t.includes("display")) return false;
           if (currentTopic === "price" && !t.includes("price") && !t.includes("cost") && !t.includes("value") && !t.includes("budget") && !t.includes("dollar")) return false;
           return true;
         }
@@ -1147,20 +1849,28 @@ async function runProductAnalysis(container) {
   );
 }
 
-// Automatic Search Page Comparative Synthesis with Live Interactive Filters
-function runSearchAnalysis(container) {
+// Automatic Search Page Comparative Synthesis with Multi-Page Support & Deep Filtering
+function runSearchAnalysis(container, shadowRoot) {
   const searchData = extractSearchData();
+  const pageNum = getCurrentSearchPageNumber();
+  const query = getCurrentSearchQuery();
+
+  const titleHeader = shadowRoot.querySelector("#panelHeaderTitle");
+  if (titleHeader) {
+    titleHeader.textContent = `Search Synthesizer (Pg ${pageNum})`;
+  }
 
   if (!searchData.products || searchData.products.length === 0) {
     container.innerHTML = `
       <div class="alert-card">
-        Scanning search page for products... If products don't appear, refresh the page.
+        Scanning Page ${pageNum} for products... If products don't appear, refresh the page.
       </div>
     `;
     return;
   }
 
-  const allScrapedProducts = searchData.products;
+  let allScrapedProducts = searchData.products;
+  let isDeepScanActive = false;
 
   let activeFilterState = {
     maxPrice: "",
@@ -1170,7 +1880,10 @@ function runSearchAnalysis(container) {
     drawerOpen: false
   };
 
-  function executeSearchAnalysis(productsToAnalyze, isRefilter = false) {
+  async function executeSearchAnalysis(productsToAnalyze, isRefilter = false) {
+    const user = await fetchMe();
+    const token = user ? user.token : null;
+
     if (isRefilter) {
       const picksContainer = container.querySelector("#picksListContainer");
       if (picksContainer) {
@@ -1188,6 +1901,7 @@ function runSearchAnalysis(container) {
     chrome.runtime.sendMessage(
       {
         action: "ANALYZE_SEARCH",
+        token: token,
         payload: {
           query: searchData.query,
           products: productsToAnalyze
@@ -1206,7 +1920,6 @@ function runSearchAnalysis(container) {
 
         const data = res.data;
         if (isRefilter && container.querySelector("#picksListContainer")) {
-          // In-place update to preserve filter inputs, values, and focus
           updateSearchPicksOnly(data, allScrapedProducts, productsToAnalyze);
         } else {
           renderSearchUI(data, allScrapedProducts, productsToAnalyze);
@@ -1219,59 +1932,105 @@ function runSearchAnalysis(container) {
     const summaryEl = container.querySelector("#searchSummaryContent");
     if (summaryEl) {
       summaryEl.innerHTML = `
-        <strong>Buying Guide for "${synthesisData.query}":</strong><br>
+        <strong>Buying Guide for "${synthesisData.query}" (Page ${pageNum}${isDeepScanActive ? " + Deep Scan" : ""}):</strong><br>
         ${synthesisData.summary}
       `;
     }
 
     const filterBadge = container.querySelector("#filterBadge");
     if (filterBadge) {
-      filterBadge.textContent = `${activeProducts.length} of ${allProducts.length} items`;
+      filterBadge.textContent = `${activeProducts.length} of ${allProducts.length} items${isDeepScanActive ? " (Multi-Page)" : ""}`;
     }
 
     const picksContainer = container.querySelector("#picksListContainer");
     if (picksContainer) {
-      picksContainer.innerHTML = (synthesisData.top_picks || []).map(pick => `
-        <div class="top-pick-card">
-          <div class="pick-header">
-            <div>
-              <span class="pick-badge">${pick.badge}</span>
-              <div class="pick-title">${pick.title}</div>
-              <span class="pick-price">${pick.price}</span>
-            </div>
-            <div class="pick-score">${pick.score.toFixed(1)}/10</div>
-          </div>
-          <div class="pick-verdict">"${pick.verdict}"</div>
-          
-          <div class="matrix-grid" style="margin-top:3px;">
-            <div class="matrix-box pros-box" style="padding:6px 8px;">
-              <div class="matrix-heading" style="font-size:10px;">✓ Pros</div>
-              <ul class="matrix-list">
-                ${(pick.pros || []).slice(0, 2).map(p => `<li>${p}</li>`).join("")}
-              </ul>
-            </div>
-            <div class="matrix-box cons-box" style="padding:6px 8px;">
-              <div class="matrix-heading" style="font-size:10px;">✕ Cons</div>
-              <ul class="matrix-list">
-                ${(pick.cons || []).slice(0, 2).map(c => `<li>${c}</li>`).join("")}
-              </ul>
-            </div>
-          </div>
-
-          ${pick.link ? `<a href="${pick.link}" class="pick-link-btn" target="_blank">View on Amazon →</a>` : ""}
-        </div>
-      `).join("") + `
+      picksContainer.innerHTML = (synthesisData.top_picks || []).map(pick => renderPickCardHtml(pick)).join("") + `
         <div style="font-size:10px; color:#64748b; text-align:center; padding:8px 0; font-style:italic;">
           Showing all ${(synthesisData.top_picks || []).length} curated products (scroll to explore)
         </div>
       `;
+      wireFavoriteButtons(picksContainer);
     }
+  }
+
+  function renderPickCardHtml(pick) {
+    return `
+      <div class="top-pick-card">
+        <div class="pick-header">
+          <div>
+            <span class="pick-badge">${pick.badge}</span>
+            <div class="pick-title">${pick.title}</div>
+            <span class="pick-price">${pick.price}</span>
+          </div>
+          <div class="pick-score">${pick.score.toFixed(1)}/10</div>
+        </div>
+        <div class="pick-verdict">"${pick.verdict}"</div>
+        
+        <div class="matrix-grid" style="margin-top:3px;">
+          <div class="matrix-box pros-box" style="padding:6px 8px;">
+            <div class="matrix-heading" style="font-size:10px;">✓ Pros</div>
+            <ul class="matrix-list">
+              ${(pick.pros || []).slice(0, 2).map(p => `<li>${p}</li>`).join("")}
+            </ul>
+          </div>
+          <div class="matrix-box cons-box" style="padding:6px 8px;">
+            <div class="matrix-heading" style="font-size:10px;">✕ Cons</div>
+            <ul class="matrix-list">
+              ${(pick.cons || []).slice(0, 2).map(c => `<li>${c}</li>`).join("")}
+            </ul>
+          </div>
+        </div>
+
+        <div class="pick-actions-row">
+          ${pick.link ? `<a href="${pick.link}" class="pick-link-btn" target="_blank">View on Amazon →</a>` : "<span></span>"}
+          <button class="save-item-btn save-pick-btn" 
+                  data-title="${encodeURIComponent(pick.title)}" 
+                  data-price="${encodeURIComponent(pick.price || '')}" 
+                  data-score="${pick.score}"
+                  data-badge="${encodeURIComponent(pick.badge || '')}"
+                  data-link="${encodeURIComponent(pick.link || '')}">
+            ★ Save
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  function wireFavoriteButtons(parentEl) {
+    parentEl.querySelectorAll(".save-pick-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const user = await fetchMe();
+        if (!user) {
+          const overlay = shadowRoot.querySelector("#accountOverlay");
+          overlay.classList.remove("hidden");
+          renderAccountDrawer(overlay, shadowRoot);
+          return;
+        }
+
+        const title = decodeURIComponent(btn.getAttribute("data-title") || "");
+        const price = decodeURIComponent(btn.getAttribute("data-price") || "");
+        const score = parseFloat(btn.getAttribute("data-score")) || 0;
+        const badge = decodeURIComponent(btn.getAttribute("data-badge") || "");
+        const link = decodeURIComponent(btn.getAttribute("data-link") || "");
+
+        chrome.runtime.sendMessage({
+          action: "FAVORITES_ADD",
+          token: user.token,
+          payload: { title, price, score, badge, link }
+        }, (res) => {
+          if (res && res.success) {
+            btn.textContent = "★ Saved!";
+            btn.classList.add("saved");
+          }
+        });
+      });
+    });
   }
 
   function renderSearchUI(synthesisData, allProducts, activeProducts) {
     container.innerHTML = `
       <div class="search-summary-card" id="searchSummaryContent">
-        <strong>Buying Guide for "${synthesisData.query}":</strong><br>
+        <strong>Buying Guide for "${synthesisData.query}" (Page ${pageNum}${isDeepScanActive ? " + Deep Scan" : ""}):</strong><br>
         ${synthesisData.summary}
       </div>
 
@@ -1316,6 +2075,16 @@ function runSearchAnalysis(container) {
               <input type="text" id="filterKeyword" placeholder="e.g. 144Hz, curved, wireless..." value="${activeFilterState.keyword}" />
             </div>
           </div>
+
+          <!-- Deep Multi-Page Scan Button -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+            <button class="deep-scan-btn ${isDeepScanActive ? "active" : ""}" id="deepScanBtn">
+              <span>🌐</span>
+              <span id="deepScanLabel">${isDeepScanActive ? "Multi-Page Active (Pages 1-3)" : "Deep Scan (Pages 1–3)"}</span>
+            </button>
+            <button class="save-item-btn" id="saveSearchBtn" title="Save this search to your account">💾 Save Search</button>
+          </div>
+
           <div class="filter-actions">
             <button class="filter-btn-reset" id="filterResetBtn">Reset</button>
             <button class="filter-btn-apply" id="filterApplyBtn">✨ Filter & AI Synthesize</button>
@@ -1328,37 +2097,8 @@ function runSearchAnalysis(container) {
         <span style="font-size:9.5px; color:#38bdf8; font-weight:600;">Scroll for all picks ↓</span>
       </div>
 
-      <div id="picksListContainer" style="display:flex; flex-direction:column; gap:7px;">
-        ${(synthesisData.top_picks || []).map(pick => `
-          <div class="top-pick-card">
-            <div class="pick-header">
-              <div>
-                <span class="pick-badge">${pick.badge}</span>
-                <div class="pick-title">${pick.title}</div>
-                <span class="pick-price">${pick.price}</span>
-              </div>
-              <div class="pick-score">${pick.score.toFixed(1)}/10</div>
-            </div>
-            <div class="pick-verdict">"${pick.verdict}"</div>
-            
-            <div class="matrix-grid" style="margin-top:3px;">
-              <div class="matrix-box pros-box" style="padding:6px 8px;">
-                <div class="matrix-heading" style="font-size:10px;">✓ Pros</div>
-                <ul class="matrix-list">
-                  ${(pick.pros || []).slice(0, 2).map(p => `<li>${p}</li>`).join("")}
-                </ul>
-              </div>
-              <div class="matrix-box cons-box" style="padding:6px 8px;">
-                <div class="matrix-heading" style="font-size:10px;">✕ Cons</div>
-                <ul class="matrix-list">
-                  ${(pick.cons || []).slice(0, 2).map(c => `<li>${c}</li>`).join("")}
-                </ul>
-              </div>
-            </div>
-
-            ${pick.link ? `<a href="${pick.link}" class="pick-link-btn" target="_blank">View on Amazon →</a>` : ""}
-          </div>
-        `).join("")}
+      <div id="picksListContainer">
+        ${(synthesisData.top_picks || []).map(pick => renderPickCardHtml(pick)).join("")}
         <div style="font-size:10px; color:#64748b; text-align:center; padding:8px 0; font-style:italic;">
           Showing all ${(synthesisData.top_picks || []).length} curated products (scroll to explore)
         </div>
@@ -1376,11 +2116,69 @@ function runSearchAnalysis(container) {
     const filterBadge = container.querySelector("#filterBadge");
     const filterResetBtn = container.querySelector("#filterResetBtn");
     const filterApplyBtn = container.querySelector("#filterApplyBtn");
+    const deepScanBtn = container.querySelector("#deepScanBtn");
+    const deepScanLabel = container.querySelector("#deepScanLabel");
+    const saveSearchBtn = container.querySelector("#saveSearchBtn");
+    const picksContainer = container.querySelector("#picksListContainer");
+
+    wireFavoriteButtons(picksContainer);
 
     filterHeaderToggle.addEventListener("click", () => {
       const isHidden = filterDrawer.classList.toggle("hidden");
       activeFilterState.drawerOpen = !isHidden;
       filterArrow.textContent = isHidden ? "▼" : "▲";
+    });
+
+    // Deep multi-page scanning trigger
+    deepScanBtn.addEventListener("click", async () => {
+      if (isDeepScanActive) {
+        alert("Deep Scan across Pages 1–3 is already active.");
+        return;
+      }
+      deepScanBtn.disabled = true;
+      deepScanLabel.textContent = "Scanning Pages 1–3...";
+
+      const pooled = await fetchDeepScanProducts(query, 3, (pg, maxPg, count) => {
+        deepScanLabel.textContent = `Scanning Page ${pg}/${maxPg} (${count} items)...`;
+      });
+
+      isDeepScanActive = true;
+      deepScanBtn.disabled = false;
+      deepScanBtn.classList.add("active");
+      deepScanLabel.textContent = `Multi-Page Active (${pooled.length} items)`;
+
+      allScrapedProducts = pooled;
+      updateLiveCount();
+      executeSearchAnalysis(allScrapedProducts, true);
+    });
+
+    // Save search button
+    saveSearchBtn.addEventListener("click", async () => {
+      const user = await fetchMe();
+      if (!user) {
+        const overlay = shadowRoot.querySelector("#accountOverlay");
+        overlay.classList.remove("hidden");
+        renderAccountDrawer(overlay, shadowRoot);
+        return;
+      }
+      chrome.runtime.sendMessage({
+        action: "SAVED_SEARCHES_ADD",
+        token: user.token,
+        payload: {
+          query: query,
+          filters: {
+            maxPrice: filterMaxPrice.value,
+            minRating: filterMinRating.value,
+            minReviews: filterMinReviews.value,
+            keyword: filterKeyword.value
+          }
+        }
+      }, (res) => {
+        if (res && res.success) {
+          saveSearchBtn.textContent = "💾 Saved!";
+          setTimeout(() => { saveSearchBtn.textContent = "💾 Save Search"; }, 2000);
+        }
+      });
     });
 
     function getFilteredProducts() {
@@ -1405,7 +2203,6 @@ function runSearchAnalysis(container) {
           const searchable = `${p.title || ""} ${p.badge || ""} ${p.price || ""}`.toLowerCase();
           const matchesAll = kwTerms.every(term => {
             if (searchable.includes(term)) return true;
-            // Common typo/shorthand e.g. "anki" -> "anker"
             if (term === "anki" && searchable.includes("anker")) return true;
             return false;
           });
@@ -1417,7 +2214,7 @@ function runSearchAnalysis(container) {
 
     function updateLiveCount() {
       const matched = getFilteredProducts();
-      filterBadge.textContent = `${matched.length} of ${allProducts.length} items`;
+      filterBadge.textContent = `${matched.length} of ${allProducts.length} items${isDeepScanActive ? " (Multi-Page)" : ""}`;
     }
 
     [filterMaxPrice, filterMinRating, filterMinReviews, filterKeyword].forEach((input) => {
@@ -1425,7 +2222,6 @@ function runSearchAnalysis(container) {
       input.addEventListener("change", updateLiveCount);
     });
 
-    // Update live count immediately upon render
     updateLiveCount();
 
     filterResetBtn.addEventListener("click", () => {
@@ -1461,9 +2257,71 @@ function runSearchAnalysis(container) {
     });
   }
 
-  // Initial analysis execution
+  // Initial execution
   executeSearchAnalysis(allScrapedProducts);
 }
+
+// --- Watch for URL & Amazon Pagination Changes (Page 1 -> Page 2 -> Page 3) ---
+let lastKnownLocation = window.location.href;
+
+function handlePageNavigation() {
+  if (globalIsNavigating) return;
+  const currentUrl = window.location.href;
+  if (currentUrl === lastKnownLocation) return;
+
+  lastKnownLocation = currentUrl;
+  const newPage = getCurrentSearchPageNumber();
+  const newQuery = getCurrentSearchQuery();
+
+  if (isAmazonSearchPage()) {
+    if (newPage !== globalActivePageNumber || newQuery !== globalActiveSearchQuery) {
+      globalIsNavigating = true;
+      globalActivePageNumber = newPage;
+      globalActiveSearchQuery = newQuery;
+
+      const root = document.getElementById("amz-synth-root");
+      if (root && root.shadowRoot) {
+        const panelBody = root.shadowRoot.querySelector("#panelBody");
+        const titleHeader = root.shadowRoot.querySelector("#panelHeaderTitle");
+        if (titleHeader) {
+          titleHeader.textContent = `Search Synthesizer (Pg ${newPage})`;
+        }
+        if (panelBody) {
+          panelBody.innerHTML = `
+            <div class="skeleton sk-title"></div>
+            <div class="sk-matrix">
+              <div class="skeleton"></div>
+              <div class="skeleton"></div>
+            </div>
+            <div class="skeleton sk-body"></div>
+            <p class="loading-subtext">Navigated to Page ${newPage}. Scanning products & updating recommendations...</p>
+          `;
+          setTimeout(() => {
+            runSearchAnalysis(panelBody, root.shadowRoot);
+            globalIsNavigating = false;
+          }, 800);
+        }
+      }
+    }
+  }
+}
+
+// Monkey-patch history API for SPA navigation
+const originalPushState = history.pushState;
+history.pushState = function (...args) {
+  originalPushState.apply(this, args);
+  handlePageNavigation();
+};
+
+const originalReplaceState = history.replaceState;
+history.replaceState = function (...args) {
+  originalReplaceState.apply(this, args);
+  handlePageNavigation();
+};
+
+window.addEventListener("popstate", () => setTimeout(handlePageNavigation, 400));
+window.addEventListener("hashchange", () => setTimeout(handlePageNavigation, 400));
+setInterval(handlePageNavigation, 1200);
 
 // Automatically mount when DOM is ready
 if (document.readyState === "loading") {

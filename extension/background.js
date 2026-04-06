@@ -1,9 +1,29 @@
 /**
  * Amazon Review Synthesizer - Background Service Worker
- * Handles API communication with local FastAPI backend cleanly without triggering extension errors.
+ * Handles API communication with local FastAPI backend, user authentication, favorites,
+ * saved searches, admin metrics, and tab navigation events.
  */
 
 const API_BASE = "http://127.0.0.1:8000";
+
+// Helper for authenticated requests
+async function authFetch(url, options = {}, token = null) {
+  const headers = options.headers || {};
+  headers["Content-Type"] = "application/json";
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return fetch(url, { ...options, headers });
+}
+
+// Watch tab updates for Amazon navigation (e.g. Page 1 -> Page 2)
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === "complete" && tab.url && /amazon\.(com|ca|co\.uk|de|fr|it|es|co\.jp|in|com\.au|com\.mx)/i.test(tab.url)) {
+    chrome.tabs.sendMessage(tabId, { action: "PAGE_NAVIGATED", url: tab.url }).catch(() => {
+      // Ignore if content script is not yet mounted
+    });
+  }
+});
 
 // Optional fallback: attempt fetching reviews if DOM was not hydrated
 async function fetchReviewsByAsin(domain, asin) {
@@ -16,9 +36,7 @@ async function fetchReviewsByAsin(domain, asin) {
       }
     });
 
-    if (!response.ok) {
-      return [];
-    }
+    if (!response.ok) return [];
 
     const html = await response.text();
     const reviews = [];
@@ -57,7 +75,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const domain = request.payload.domain || "www.amazon.ca";
         const asin = request.payload.asin;
 
-        // If DOM reviews were empty, try direct ASIN review page fetch
         if (reviews.length < 2 && asin) {
           const directReviews = await fetchReviewsByAsin(domain, asin);
           if (directReviews.length > 0) {
@@ -82,10 +99,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         if (!res.ok) {
           const errorText = await res.text();
-          sendResponse({
-            success: false,
-            error: `API error (${res.status}): ${errorText}`
-          });
+          sendResponse({ success: false, error: `API error (${res.status}): ${errorText}` });
           return;
         }
 
@@ -98,16 +112,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       }
     })();
-    return true; // Keep channel open
+    return true;
   }
 
   // 2. Search Results Multi-Product Analysis
   if (request.action === "ANALYZE_SEARCH") {
     (async () => {
       try {
+        const headers = { "Content-Type": "application/json" };
+        if (request.token) {
+          headers["Authorization"] = `Bearer ${request.token}`;
+        }
+
         const res = await fetch(`${API_BASE}/api/v1/analyze-search`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: headers,
           body: JSON.stringify({
             query: request.payload.query,
             products: request.payload.products
@@ -116,10 +135,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         if (!res.ok) {
           const errorText = await res.text();
-          sendResponse({
-            success: false,
-            error: `API error (${res.status}): ${errorText}`
-          });
+          sendResponse({ success: false, error: `API error (${res.status}): ${errorText}` });
           return;
         }
 
@@ -132,6 +148,232 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       }
     })();
-    return true; // Keep channel open
+    return true;
+  }
+
+  // 3. User Authentication
+  if (request.action === "AUTH_REGISTER") {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request.payload)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Registration failed." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === "AUTH_LOGIN") {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request.payload)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Login failed." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === "AUTH_ME") {
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE}/api/v1/auth/me`, { method: "GET" }, request.token);
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Session expired." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  // 4. Favorites Actions
+  if (request.action === "FAVORITES_GET") {
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE}/api/v1/favorites`, { method: "GET" }, request.token);
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Failed to load favorites." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === "FAVORITES_ADD") {
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE}/api/v1/favorites`, {
+          method: "POST",
+          body: JSON.stringify(request.payload)
+        }, request.token);
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Failed to add favorite." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === "FAVORITES_DELETE") {
+    (async () => {
+      try {
+        let endpoint = `${API_BASE}/api/v1/favorites/${request.favorite_id}`;
+        if (request.asin) {
+          endpoint = `${API_BASE}/api/v1/favorites/by-asin/${encodeURIComponent(request.asin)}`;
+        }
+        const res = await authFetch(endpoint, { method: "DELETE" }, request.token);
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Failed to remove favorite." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  // 5. Saved Searches
+  if (request.action === "SAVED_SEARCHES_GET") {
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE}/api/v1/saved-searches`, { method: "GET" }, request.token);
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Failed to load saved searches." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === "SAVED_SEARCHES_ADD") {
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE}/api/v1/saved-searches`, {
+          method: "POST",
+          body: JSON.stringify(request.payload)
+        }, request.token);
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Failed to save search." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === "SAVED_SEARCHES_DELETE") {
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE}/api/v1/saved-searches/${request.search_id}`, { method: "DELETE" }, request.token);
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Failed to delete saved search." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  // 6. Admin Actions (Strictly Admin Only)
+  if (request.action === "ADMIN_GET_METRICS") {
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE}/api/v1/admin/metrics`, { method: "GET" }, request.token);
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Admin access denied." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === "ADMIN_GET_USERS") {
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE}/api/v1/admin/users`, { method: "GET" }, request.token);
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Admin access denied." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === "ADMIN_DELETE_USER") {
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE}/api/v1/admin/users/${request.user_id}`, { method: "DELETE" }, request.token);
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Failed to delete user." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
   }
 });

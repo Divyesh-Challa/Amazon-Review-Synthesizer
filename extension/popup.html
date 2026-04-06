@@ -18,7 +18,10 @@
         </svg>
         <span class="header-title">Review Synthesizer</span>
       </div>
-      <span class="status-indicator" id="statusIndicator">Ready</span>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <button id="popupAccountBtn" class="account-header-btn" title="Account / Favorites / Admin">👤 Account</button>
+        <span class="status-indicator" id="statusIndicator">Ready</span>
+      </div>
     </header>
 
     <!-- Error State -->
@@ -64,7 +67,10 @@
     <div id="successProductState" class="state-card success-card hidden">
       <div class="product-header">
         <div class="product-info">
-          <span class="section-label">Product Analysis</span>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="section-label">Product Analysis</span>
+            <button class="save-item-btn" id="saveProductPopupBtn">★ Save</button>
+          </div>
           <h2 id="resProductName" class="product-name">Product Name</h2>
         </div>
         <div class="score-container">
@@ -128,7 +134,7 @@
     <!-- Success State: Search Analysis -->
     <div id="successSearchState" class="state-card success-card hidden">
       <div class="product-preview" style="border-color: #38bdf8;">
-        <span class="preview-tag">Buying Guide</span>
+        <span class="preview-tag" id="searchBuyingGuideLabel">Buying Guide</span>
         <p id="searchSummaryText" style="font-size:12px; color:#e2e8f0; line-height:1.4;"></p>
       </div>
 
@@ -136,7 +142,10 @@
       <div class="product-preview" style="padding: 8px 10px; display:flex; flex-direction:column; gap:6px;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <span style="font-size:11px; font-weight:700; color:#38bdf8;">🎛️ Filters</span>
-          <span id="popupFilterCount" style="font-size:9.5px; color:#94a3b8;">All products</span>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button class="save-item-btn" id="popupSaveSearchBtn" style="font-size:9px; padding:2px 6px;">💾 Save Search</button>
+            <span id="popupFilterCount" style="font-size:9.5px; color:#94a3b8;">All products</span>
+          </div>
         </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
           <input type="number" id="popupMaxPrice" placeholder="Max Price ($)" min="0" style="background:#0f172a; border:1px solid #334155; color:#f8fafc; padding:3px 6px; border-radius:4px; font-size:10.5px;" />
@@ -168,6 +177,16 @@
       <div class="footer-actions">
         <button id="reanalyzeSearchBtn" class="btn secondary-btn">Re-analyze Search</button>
       </div>
+    </div>
+
+    <!-- Account & Admin Modal Overlay -->
+    <div id="popupAccountOverlay" class="account-overlay hidden">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="font-size:13px; font-weight:700; color:#f8fafc;">👤 Account & Collections</h3>
+        <button id="closePopupAccountBtn" class="icon-btn" style="width:20px; height:20px; font-size:10px;">✕</button>
+      </div>
+      <div class="account-nav" id="popupAccountNav"></div>
+      <div id="popupAccountTabContent"></div>
     </div>
   </div>
 

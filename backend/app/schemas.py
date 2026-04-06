@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 
 # Single Product Review Analysis
 class AnalyzeRequest(BaseModel):
@@ -61,3 +61,80 @@ class SearchSynthesisResponse(BaseModel):
     query: str
     summary: str
     top_picks: List[TopPickItem]
+
+# --- User & Auth Schemas ---
+class UserRegisterRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=120)
+    password: str = Field(..., min_length=6, max_length=128)
+    name: str = Field(..., min_length=2, max_length=80)
+
+class UserLoginRequest(BaseModel):
+    email: str
+    password: str
+
+class UserProfile(BaseModel):
+    id: int
+    email: str
+    name: str
+    is_admin: bool
+    created_at: str
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserProfile
+
+# --- Favorites Schemas ---
+class FavoriteCreateRequest(BaseModel):
+    asin: Optional[str] = ""
+    title: str
+    price: Optional[str] = ""
+    rating: Optional[float] = None
+    score: Optional[float] = None
+    link: Optional[str] = ""
+    badge: Optional[str] = ""
+    image_url: Optional[str] = ""
+
+class FavoriteItemResponse(BaseModel):
+    id: int
+    asin: Optional[str]
+    title: str
+    price: Optional[str]
+    rating: Optional[float]
+    score: Optional[float]
+    link: Optional[str]
+    badge: Optional[str]
+    image_url: Optional[str]
+    created_at: str
+
+# --- Saved Search Schemas ---
+class SavedSearchCreateRequest(BaseModel):
+    query: str
+    filters: Optional[Dict[str, Any]] = None
+
+class SavedSearchResponse(BaseModel):
+    id: int
+    query: str
+    filters: Optional[Dict[str, Any]]
+    created_at: str
+
+# --- Admin Metrics Schemas ---
+class AdminUserItem(BaseModel):
+    id: int
+    email: str
+    name: str
+    is_admin: bool
+    created_at: str
+    last_login: Optional[str] = None
+    favorites_count: int = 0
+    saved_searches_count: int = 0
+
+class AdminMetricsResponse(BaseModel):
+    total_users: int
+    total_active_sessions: int
+    total_favorites: int
+    total_saved_searches: int
+    total_search_syntheses: int
+    popular_queries: List[Dict[str, Any]]
+    top_favorited_products: List[Dict[str, Any]]
+    recent_users: List[AdminUserItem]
+    system_status: Dict[str, Any]
