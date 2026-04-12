@@ -376,4 +376,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     })();
     return true;
   }
+
+  if (request.action === "ADMIN_TOGGLE_USER") {
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE}/api/v1/admin/users/${request.user_id}/toggle-admin`, { method: "POST" }, request.token);
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Failed to toggle admin status." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
 });

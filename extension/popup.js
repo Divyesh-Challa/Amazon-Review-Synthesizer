@@ -703,7 +703,10 @@ async function renderPopupAccountDrawer() {
                       <td>${u.favorites_count} favs</td>
                       <td>
                         ${u.id !== currentUser.id ? `
-                          <button class="icon-btn del-user-pop" data-id="${u.id}" title="Delete" style="width:18px; height:18px; font-size:9px; color:#f43f5e;">✕</button>
+                          <div style="display:flex; gap:3px;">
+                            <button class="icon-btn toggle-admin-pop" data-id="${u.id}" title="${u.is_admin ? 'Demote to regular user' : 'Promote to Administrator'}" style="width:18px; height:18px; font-size:10px; color:${u.is_admin ? '#f59e0b' : '#38bdf8'};">${u.is_admin ? '★' : '☆'}</button>
+                            <button class="icon-btn del-user-pop" data-id="${u.id}" title="Delete" style="width:18px; height:18px; font-size:9px; color:#f43f5e;">✕</button>
+                          </div>
                         ` : `<span style="font-size:8.5px; color:#64748b;">(You)</span>`}
                       </td>
                     </tr>
@@ -721,6 +724,15 @@ async function renderPopupAccountDrawer() {
                   loadTab("admin");
                 });
               }
+            });
+          });
+
+          popupAccountTabContent.querySelectorAll(".toggle-admin-pop").forEach(btn => {
+            btn.addEventListener("click", () => {
+              const uId = btn.getAttribute("data-id");
+              chrome.runtime.sendMessage({ action: "ADMIN_TOGGLE_USER", user_id: uId, token: currentUser.token }, () => {
+                loadTab("admin");
+              });
             });
           });
         });

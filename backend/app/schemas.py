@@ -138,3 +138,9 @@ class AdminMetricsResponse(BaseModel):
     top_favorited_products: List[Dict[str, Any]]
     recent_users: List[AdminUserItem]
     system_status: Dict[str, Any]
+
+class AdminUserUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
+    is_admin: Optional[bool] = None

@@ -2,10 +2,10 @@ import os
 import time
 from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List, Dict, Any
-from app.database import get_connection, DB_PATH
+from app.database import get_connection, DB_PATH, hash_password
 from app.auth import get_current_admin_user
 from app.config import settings
-from app.schemas import AdminMetricsResponse, AdminUserItem
+from app.schemas import AdminMetricsResponse, AdminUserItem, AdminUserUpdateRequest
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin Dashboard"])
 
@@ -178,3 +178,46 @@ async def toggle_admin_status(user_id: int, admin: dict = Depends(get_current_ad
         conn.commit()
 
     return {"message": "Admin status updated.", "is_admin": bool(new_status)}
+
+@router.patch("/users/{user_id}")
+async def update_user(user_id: int, payload: AdminUserUpdateRequest, admin: dict = Depends(get_current_admin_user)):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, is_admin FROM users WHERE id = ?;", (user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+        updates = []
+        params = []
+        if payload.name is not None and payload.name.strip():
+            updates.append("name = ?")
+            params.append(payload.name.strip())
+
+        if payload.email is not None and payload.email.strip():
+            new_email = payload.email.strip().lower()
+            cursor.execute("SELECT id FROM users WHERE email = ? AND id != ?;", (new_email, user_id))
+            if cursor.fetchone():
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use.")
+            updates.append("email = ?")
+            params.append(new_email)
+
+        if payload.password is not None and payload.password.strip():
+            pwd_hash, salt = hash_password(payload.password.strip())
+            updates.append("password_hash = ?, salt = ?")
+            params.extend([pwd_hash, salt])
+
+        if payload.is_admin is not None:
+            if user_id == admin["id"] and not payload.is_admin:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot revoke your own admin rights.")
+            updates.append("is_admin = ?")
+            params.append(1 if payload.is_admin else 0)
+
+        if not updates:
+            return {"message": "No changes specified."}
+
+        params.append(user_id)
+        cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?;", tuple(params))
+        conn.commit()
+
+    return {"message": "User updated successfully."}
