@@ -1,0 +1,27 @@
+# Task: Implementation of Advanced E-Commerce Intelligence Features
+
+- [ ] Phase 1: Architecture, Schemas & Database Enhancements
+    - [ ] Update `backend/app/database.py` with `price_history` table and target price support in `favorites`
+    - [ ] Update `backend/app/schemas.py` with schemas for Authenticity, Durability, Deal Quality, Q&A (`/ask-reviews`), and Comparison (`/compare-products`)
+    - [ ] Update `backend/app/prompts.py` with targeted prompts for Authenticity/Hijacking detection, Durability forecasting, Q&A RAG, and Head-to-Head Comparison
+- [ ] Phase 2: Backend AI Engine & Route Implementation
+    - [ ] Update `backend/app/services/synthesizer.py` to synthesize authenticity, durability, and deal quality
+    - [ ] Implement `POST /api/v1/ask-reviews` endpoint for conversational product Q&A
+    - [ ] Implement `POST /api/v1/compare-products` endpoint for Head-to-Head product comparison
+    - [ ] Implement price tracking & history endpoints (`GET/POST /api/v1/price-history`)
+    - [ ] Write and run automated pytest test suite for all new endpoints
+- [ ] Phase 3: Extension Background Service Worker Updates
+    - [ ] Update `extension/background.js` to route new actions: `ASK_REVIEWS`, `COMPARE_PRODUCTS`, `GET_PRICE_HISTORY`, `RECORD_PRICE`, `GET_OPEN_AMAZON_TABS`
+    - [ ] Add tab query support so the extension can detect other open Amazon product tabs for 1-click comparison
+- [ ] Phase 4: Extension UI Implementation (Docked Panel & Popup)
+    - [ ] Add Authenticity Radar & Hijack Warning banner in `content.js` and `popup.html`/`popup.js`
+    - [ ] Add Durability & Failure Forecaster breakdown in UI
+    - [ ] Add interactive "Ask the Reviews" Q&A search bar with citations
+    - [ ] Add Price History & Deal Audit badge
+    - [ ] Add Head-to-Head ("VS") comparison modal and tab picker
+    - [ ] Add "Export Decision Brief" 1-click shareable report generator
+- [ ] Phase 5: Verification & Quality Assurance
+    - [ ] Run full backend test suite (`pytest`)
+    - [ ] Verify mock and live LLM fallback execution
+    - [ ] Review UI styling and responsiveness
+    - [ ] Commit all completed features to git `dev` branch

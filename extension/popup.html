@@ -67,11 +67,14 @@
     <div id="successProductState" class="state-card success-card hidden">
       <div class="product-header">
         <div class="product-info">
-          <div style="display:flex; align-items:center; gap:6px;">
+          <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
             <span class="section-label">Product Analysis</span>
             <button class="save-item-btn" id="saveProductPopupBtn">★ Save</button>
+            <button class="save-item-btn" id="popupVsBtn" title="Compare with Open Tab">⚖️ VS</button>
+            <button class="save-item-btn" id="popupExportBtn" title="Export Buying Brief">📄 Brief</button>
           </div>
           <h2 id="resProductName" class="product-name">Product Name</h2>
+          <div id="popupDealBadge" style="display:none; align-items:center; gap:4px; font-size:10px; color:#38bdf8; margin-top:3px;"></div>
         </div>
         <div class="score-container">
           <div id="resScoreBadge" class="score-badge">
@@ -80,6 +83,32 @@
           </div>
           <span class="score-subtext">Reliability</span>
         </div>
+      </div>
+
+      <!-- Authenticity & Durability Snapshot -->
+      <div id="popupAuthDurGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin:6px 0;">
+        <div style="background:#1e293b; border:1px solid #334155; border-radius:6px; padding:5px 8px;">
+          <div style="font-size:9px; color:#94a3b8; font-weight:700; text-transform:uppercase;">Authenticity</div>
+          <div id="popupAuthScore" style="font-size:11px; font-weight:700; color:#34d399;">🛡️ 9.4/10 Real</div>
+        </div>
+        <div style="background:#1e293b; border:1px solid #334155; border-radius:6px; padding:5px 8px;">
+          <div style="font-size:9px; color:#94a3b8; font-weight:700; text-transform:uppercase;">Durability</div>
+          <div id="popupDurScore" style="font-size:11px; font-weight:700; color:#38bdf8;">⏳ 8.8/10</div>
+        </div>
+      </div>
+      <div id="popupHijackWarning" class="alert-card hidden" style="background:#4c0519; border:1px solid #f43f5e; color:#ffe4e6; font-size:10.5px; padding:6px 8px; margin-bottom:6px;"></div>
+      <div id="popupAltAdvice" class="hidden" style="background:#1e1b4b; border:1px solid #6366f1; border-radius:6px; padding:6px 8px; margin-bottom:6px; font-size:10.5px; color:#e0e7ff;"></div>
+
+      <!-- Conversational Ask the Reviews -->
+      <div class="section-card" style="border:1px solid #38bdf8; background:#1e293b; padding:8px 10px;">
+        <div class="section-header" style="color:#38bdf8; display:flex; align-items:center; gap:4px; margin-bottom:4px;">
+          <span>💬</span> <h4>Ask the Reviews (AI Q&A)</h4>
+        </div>
+        <div style="display:flex; gap:4px;">
+          <input type="text" id="popupAskInput" placeholder="Ask anything (e.g. Does it work on Mac?)..." style="flex:1; background:#0f172a; border:1px solid #334155; color:#f8fafc; padding:4px 6px; border-radius:4px; font-size:10px; outline:none;" />
+          <button id="popupAskBtn" class="btn primary-btn" style="padding:4px 8px; font-size:9.5px;">Ask</button>
+        </div>
+        <div id="popupAskResult" style="margin-top:6px; font-size:10.5px; display:none; background:#0f172a; border:1px solid #334155; border-radius:5px; padding:6px 8px; line-height:1.4;"></div>
       </div>
 
       <!-- Review Topic & Keyword Filter Bar -->
@@ -99,7 +128,7 @@
             <span class="matrix-icon">✓</span>
             <h4>Pros</h4>
           </div>
-          <ul id="resProsList" class="matrix-list"></ul>
+          <ul id=\"resProsList\" class="matrix-list"></ul>
         </div>
         <div class="matrix-card cons-card">
           <div class="matrix-header">
@@ -124,6 +153,18 @@
           <h4>Negative Reviews & Flaws</h4>
         </div>
         <ul id="resNegativesList" class="bullet-list"></ul>
+      </div>
+
+      <!-- Durability Forecaster Detail -->
+      <div class="section-card" id="popupDurabilitySection">
+        <div class="section-header" style="justify-content:space-between; display:flex; align-items:center;">
+          <div style="display:flex; align-items:center; gap:4px;">
+            <span class="dot" style="background:#38bdf8;"></span>
+            <h4>Long-Term Durability Forecaster</h4>
+          </div>
+          <span id="popupFailureVerdict" style="font-size:9px; color:#94a3b8;">Low Defect Rate</span>
+        </div>
+        <ul id="popupLongevityList" class="bullet-list"></ul>
       </div>
 
       <div class="footer-actions">
@@ -187,6 +228,24 @@
       </div>
       <div class="account-nav" id="popupAccountNav"></div>
       <div id="popupAccountTabContent"></div>
+    </div>
+
+    <!-- Head-to-Head Comparison (VS) Overlay -->
+    <div id="popupVsOverlay" class="account-overlay hidden">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="font-size:13px; font-weight:700; color:#f8fafc;">⚖️ Head-to-Head Comparison</h3>
+        <button id="closePopupVsBtn" class="icon-btn" style="width:20px; height:20px; font-size:10px;">✕</button>
+      </div>
+      <div id="popupVsContent"></div>
+    </div>
+
+    <!-- Export Decision Brief Overlay -->
+    <div id="popupExportOverlay" class="account-overlay hidden">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="font-size:13px; font-weight:700; color:#f8fafc;">📄 Buying Decision Brief</h3>
+        <button id="closePopupExportBtn" class="icon-btn" style="width:20px; height:20px; font-size:10px;">✕</button>
+      </div>
+      <div id="popupExportContent"></div>
     </div>
   </div>
 

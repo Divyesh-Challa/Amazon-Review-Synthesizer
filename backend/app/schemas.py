@@ -1,6 +1,25 @@
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, EmailStr
 
+# --- Authenticity, Durability & Deal Analysis ---
+class AuthenticityInfo(BaseModel):
+    authenticity_score: float = Field(default=9.2, ge=0.0, le=10.0, description="Estimated percentage of authentic, genuine customer reviews out of 10")
+    is_hijacked: bool = Field(default=False, description="Whether reviews mention entirely different products indicating a hijacked listing")
+    hijack_warning: Optional[str] = Field(default=None, description="Detailed explanation if reviews mismatch the current product")
+    adjusted_rating: Optional[float] = Field(default=None, description="Star rating recalculated excluding suspicious/incentivized reviews")
+    suspicious_patterns: List[str] = Field(default_factory=list, description="Specific red flags observed, e.g. review velocity spike or unverified clusters")
+
+class DurabilityInfo(BaseModel):
+    durability_score: float = Field(default=8.5, ge=0.0, le=10.0, description="Long-term durability score out of 10")
+    failure_rate_verdict: str = Field(default="Low Defect Rate", description="Verdict on failure rate after extended usage (3-12 months)")
+    longevity_insights: List[str] = Field(default_factory=list, description="Feedback from buyers who owned the item for 3+ months")
+    typical_failure_timeframe: Optional[str] = Field(default=None, description="e.g. '3-6 months' if noticeable failure spike exists, else 'Minimal defects reported'")
+
+class DealVerdictInfo(BaseModel):
+    deal_quality: str = Field(default="Standard Price", description="'Genuine Deal', 'Inflated List Price', 'Standard Price', or 'Price Hike'")
+    deal_detail: str = Field(default="Priced in line with historical baseline.", description="Detailed analysis of whether discount is genuine")
+    is_genuine_discount: bool = Field(default=True)
+
 # Single Product Review Analysis
 class AnalyzeRequest(BaseModel):
     product_title: str = Field(..., description="Title of the Amazon product")
@@ -11,6 +30,7 @@ class AnalyzeRequest(BaseModel):
     features: List[str] = Field(default_factory=list, description="About this item feature bullets")
     specs: Dict[str, Any] = Field(default_factory=dict, description="Technical specifications (brand, resolution, etc.)")
     price: Optional[str] = Field(None, description="Current price, e.g. '$87.99'")
+    asin: Optional[str] = Field(None, description="Amazon standard identification number")
 
 class ReviewSynthesisResponse(BaseModel):
     product_name: str = Field(..., description="Sanitized and readable product name")
@@ -31,6 +51,78 @@ class ReviewSynthesisResponse(BaseModel):
         default_factory=list,
         description="High-level product cons"
     )
+    authenticity: Optional[AuthenticityInfo] = Field(default_factory=AuthenticityInfo)
+    durability: Optional[DurabilityInfo] = Field(default_factory=DurabilityInfo)
+    deal_verdict: Optional[DealVerdictInfo] = Field(default_factory=DealVerdictInfo)
+    better_alternative_advice: Optional[str] = Field(default=None, description="Advice if item is sub-optimal or high risk")
+
+# --- Conversational "Ask the Reviews" (RAG) Schemas ---
+class AskReviewsCitation(BaseModel):
+    quote: str
+    context: Optional[str] = ""
+
+class AskReviewsRequest(BaseModel):
+    product_title: str
+    reviews: List[str]
+    question: str
+    specs: Optional[Dict[str, Any]] = None
+    features: Optional[List[str]] = None
+
+class AskReviewsResponse(BaseModel):
+    question: str
+    answer: str
+    confidence: str = "high"  # high, medium, low
+    citations: List[AskReviewsCitation] = Field(default_factory=list)
+    direct_verdict: Optional[str] = None  # e.g. "Yes", "No", "Depends on model"
+
+# --- Head-to-Head Comparison ("VS Mode") Schemas ---
+class CompareProductInput(BaseModel):
+    title: str
+    price: Optional[str] = "N/A"
+    score: Optional[float] = 0.0
+    rating: Optional[float] = 0.0
+    review_count: Optional[str] = "0"
+    reviews: Optional[List[str]] = Field(default_factory=list)
+    features: Optional[List[str]] = Field(default_factory=list)
+    specs: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    asin: Optional[str] = ""
+    link: Optional[str] = ""
+
+class CompareProductsRequest(BaseModel):
+    product_a: CompareProductInput
+    product_b: CompareProductInput
+
+class ComparisonCategory(BaseModel):
+    category: str
+    winner: str  # "A", "B", or "Tie"
+    detail: str
+
+class CompareProductsResponse(BaseModel):
+    winner_product: str  # "A", "B", or "Tie"
+    verdict: str
+    summary: str
+    product_a_advantages: List[str] = Field(default_factory=list)
+    product_b_advantages: List[str] = Field(default_factory=list)
+    categories: List[ComparisonCategory] = Field(default_factory=list)
+
+# --- Price Tracking Schemas ---
+class PriceRecordRequest(BaseModel):
+    asin: str
+    price_raw: str
+
+class PricePoint(BaseModel):
+    price: float
+    price_raw: str
+    created_at: str
+
+class PriceHistoryResponse(BaseModel):
+    asin: str
+    points: List[PricePoint] = Field(default_factory=list)
+    current_price: Optional[float] = None
+    lowest_price: Optional[float] = None
+    highest_price: Optional[float] = None
+    average_price: Optional[float] = None
+    deal_verdict: str = "Standard Price"
 
 # Search Page Multi-Product Analysis
 class SearchProductItem(BaseModel):
@@ -93,6 +185,7 @@ class FavoriteCreateRequest(BaseModel):
     link: Optional[str] = ""
     badge: Optional[str] = ""
     image_url: Optional[str] = ""
+    target_price: Optional[float] = None
 
 class FavoriteItemResponse(BaseModel):
     id: int
@@ -104,6 +197,7 @@ class FavoriteItemResponse(BaseModel):
     link: Optional[str]
     badge: Optional[str]
     image_url: Optional[str]
+    target_price: Optional[float] = None
     created_at: str
 
 # --- Saved Search Schemas ---

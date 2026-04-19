@@ -5,7 +5,9 @@
   "description": "Automatically analyzes Amazon product reviews and search results with AI scores, pros/cons, and buying guides.",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "storage",
+    "tabs"
   ],
   "host_permissions": [
     "*://*.amazon.com/*",

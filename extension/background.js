@@ -393,4 +393,121 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     })();
     return true;
   }
+
+  // 7. Conversational Product RAG ("Ask the Reviews")
+  if (request.action === "ASK_REVIEWS") {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/ask-reviews`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request.payload)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Failed to query reviews." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  // 8. Head-to-Head Comparison ("VS Mode")
+  if (request.action === "COMPARE_PRODUCTS") {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/compare-products`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request.payload)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Failed to compare products." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message || "Network error." });
+      }
+    })();
+    return true;
+  }
+
+  // 9. Price Tracking & History
+  if (request.action === "RECORD_PRICE") {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/price-history`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request.payload)
+        });
+        const data = await res.json();
+        sendResponse({ success: res.ok, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === "GET_PRICE_HISTORY") {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/price-history/${encodeURIComponent(request.asin)}`);
+        const data = await res.json();
+        if (!res.ok) {
+          sendResponse({ success: false, error: data.detail || "Failed to get price history." });
+          return;
+        }
+        sendResponse({ success: true, data: data });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  // 10. Open Amazon Tabs Discovery (for Comparison)
+  if (request.action === "GET_OPEN_AMAZON_TABS") {
+    (async () => {
+      try {
+        const tabs = await chrome.tabs.query({ url: "*://*.amazon.*/*" });
+        const currentTabId = sender.tab ? sender.tab.id : null;
+        const validTabs = tabs
+          .filter(t => t.id !== currentTabId && t.url && (t.url.includes("/dp/") || t.url.includes("/gp/product/")))
+          .map(t => ({
+            id: t.id,
+            title: t.title,
+            url: t.url
+          }));
+        sendResponse({ success: true, tabs: validTabs });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message, tabs: [] });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === "EXTRACT_TAB_DATA") {
+    (async () => {
+      try {
+        chrome.tabs.sendMessage(request.tabId, { action: "EXTRACT_REVIEWS" }, (res) => {
+          if (chrome.runtime.lastError || !res) {
+            sendResponse({ success: false, error: "Failed to extract product data from target tab." });
+          } else {
+            sendResponse(res);
+          }
+        });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
 });

@@ -17,6 +17,7 @@ from app.routes.auth_routes import router as auth_router
 from app.routes.favorites_routes import router as favorites_router
 from app.routes.saved_searches_routes import router as saved_searches_router
 from app.routes.admin_routes import router as admin_router
+from app.routes.intelligence_routes import router as intelligence_router
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -24,8 +25,8 @@ logger = logging.getLogger("amazon_synthesizer")
 
 app = FastAPI(
     title="Amazon Review Synthesizer API",
-    version="1.4.0",
-    description="Backend service for synthesizing Amazon reviews, managing user accounts, favorites, and admin metrics."
+    version="1.5.0",
+    description="Backend service for synthesizing Amazon reviews, product intelligence, conversational Q&A, and head-to-head comparison."
 )
 
 # Enable CORS for Chrome Extensions and local clients
@@ -42,6 +43,7 @@ app.include_router(auth_router)
 app.include_router(favorites_router)
 app.include_router(saved_searches_router)
 app.include_router(admin_router)
+app.include_router(intelligence_router)
 
 @app.on_event("startup")
 async def on_startup():
@@ -53,7 +55,7 @@ async def root():
     return {
         "status": "online",
         "service": "Amazon Review Synthesizer API",
-        "version": "1.4.0",
+        "version": "1.5.0",
         "provider": settings.LLM_PROVIDER
     }
 
@@ -75,7 +77,7 @@ async def analyze_reviews(payload: AnalyzeRequest):
     """
     Ingests product title, raw review strings, ratings, features, specs, and customer consensus,
     sanitizes content, runs LLM synthesis with guardrails,
-    and returns an objective, tailored breakdown.
+    and returns an objective, tailored breakdown including authenticity, durability, and deal quality.
     """
     start_time = time.perf_counter()
     logger.info(f"Incoming product analysis for: {payload.product_title[:60]}... ({len(payload.reviews)} reviews, rating={payload.rating}, price={payload.price})")
@@ -89,13 +91,14 @@ async def analyze_reviews(payload: AnalyzeRequest):
     try:
         result = synthesize(
             product_title=payload.product_title,
-            raw_reviews=payload.reviews,
+            reviews=payload.reviews,
             rating=payload.rating,
             review_count=payload.review_count,
             customer_consensus=payload.customer_consensus,
             features=payload.features,
             specs=payload.specs,
-            price=payload.price
+            price=payload.price,
+            asin=payload.asin
         )
         duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
         logger.info(f"Product synthesis completed in {duration_ms}ms with score: {result.score}")

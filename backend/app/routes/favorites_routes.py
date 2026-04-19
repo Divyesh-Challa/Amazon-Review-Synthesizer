@@ -11,7 +11,7 @@ async def list_favorites(user: dict = Depends(get_current_user)):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, asin, title, price, rating, score, link, badge, image_url, created_at
+            SELECT id, asin, title, price, rating, score, link, badge, image_url, target_price, created_at
             FROM favorites
             WHERE user_id = ?
             ORDER BY created_at DESC;
@@ -29,6 +29,7 @@ async def list_favorites(user: dict = Depends(get_current_user)):
             link=r["link"],
             badge=r["badge"],
             image_url=r["image_url"],
+            target_price=r["target_price"],
             created_at=r["created_at"]
         ) for r in rows
     ]
@@ -47,27 +48,27 @@ async def add_favorite(payload: FavoriteCreateRequest, user: dict = Depends(get_
             existing = cursor.fetchone()
             if existing:
                 cursor.execute("""
-                    UPDATE favorites SET title = ?, price = ?, rating = ?, score = ?, link = ?, badge = ?, image_url = ?
+                    UPDATE favorites SET title = ?, price = ?, rating = ?, score = ?, link = ?, badge = ?, image_url = ?, target_price = ?
                     WHERE id = ?;
-                """, (title, payload.price, payload.rating, payload.score, payload.link, payload.badge, payload.image_url, existing["id"]))
+                """, (title, payload.price, payload.rating, payload.score, payload.link, payload.badge, payload.image_url, payload.target_price, existing["id"]))
                 conn.commit()
                 fav_id = existing["id"]
             else:
                 cursor.execute("""
-                    INSERT INTO favorites (user_id, asin, title, price, rating, score, link, badge, image_url)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-                """, (user["id"], asin, title, payload.price, payload.rating, payload.score, payload.link, payload.badge, payload.image_url))
+                    INSERT INTO favorites (user_id, asin, title, price, rating, score, link, badge, image_url, target_price)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """, (user["id"], asin, title, payload.price, payload.rating, payload.score, payload.link, payload.badge, payload.image_url, payload.target_price))
                 conn.commit()
                 fav_id = cursor.lastrowid
         else:
             cursor.execute("""
-                INSERT INTO favorites (user_id, asin, title, price, rating, score, link, badge, image_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-            """, (user["id"], asin, title, payload.price, payload.rating, payload.score, payload.link, payload.badge, payload.image_url))
+                INSERT INTO favorites (user_id, asin, title, price, rating, score, link, badge, image_url, target_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """, (user["id"], asin, title, payload.price, payload.rating, payload.score, payload.link, payload.badge, payload.image_url, payload.target_price))
             conn.commit()
             fav_id = cursor.lastrowid
 
-        cursor.execute("SELECT id, asin, title, price, rating, score, link, badge, image_url, created_at FROM favorites WHERE id = ?;", (fav_id,))
+        cursor.execute("SELECT id, asin, title, price, rating, score, link, badge, image_url, target_price, created_at FROM favorites WHERE id = ?;", (fav_id,))
         row = cursor.fetchone()
 
     return FavoriteItemResponse(
@@ -80,6 +81,7 @@ async def add_favorite(payload: FavoriteCreateRequest, user: dict = Depends(get_
         link=row["link"],
         badge=row["badge"],
         image_url=row["image_url"],
+        target_price=row["target_price"],
         created_at=row["created_at"]
     )
 
