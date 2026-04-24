@@ -909,8 +909,9 @@ async function handlePopupAsk() {
     popupAskBtn.disabled = false;
     popupAskBtn.textContent = "Ask";
 
-    if (!res || !res.success) {
-      popupAskResult.innerHTML = `<span style="color:#fb7185;">Failed: ${res ? res.error : "Service unavailable"}</span>`;
+    if (chrome.runtime.lastError || !res || !res.success) {
+      const err = (res && res.error) || (chrome.runtime.lastError && chrome.runtime.lastError.message) || "Backend server is offline. Run 'source venv/bin/activate && uvicorn app.main:app --reload' in your backend terminal.";
+      popupAskResult.innerHTML = `<span style="color:#fb7185;">Failed: ${err}</span>`;
       return;
     }
 

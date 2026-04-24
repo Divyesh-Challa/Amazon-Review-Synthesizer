@@ -1304,6 +1304,24 @@ function injectAutoSynthesizerUI() {
       <div class="account-nav" id="accountNav"></div>
       <div id="accountTabContent"></div>
     </div>
+
+    <!-- VS Comparison Overlay -->
+    <div class="account-overlay hidden" id="vsOverlay">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="font-size:13px; font-weight:700; color:#f8fafc;">⚖️ Head-to-Head Comparison</h3>
+        <button class="icon-btn" id="closeVsBtn" style="width:20px; height:20px; font-size:10px;">✕</button>
+      </div>
+      <div id="vsOverlayContent"></div>
+    </div>
+
+    <!-- Export Decision Brief Overlay -->
+    <div class="account-overlay hidden" id="exportOverlay">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="font-size:13px; font-weight:700; color:#f8fafc;">📄 Buying Decision Brief</h3>
+        <button class="icon-btn" id="closeExportBtn" style="width:20px; height:20px; font-size:10px;">✕</button>
+      </div>
+      <div id="exportOverlayContent"></div>
+    </div>
   `;
   shadow.appendChild(panel);
 
@@ -1313,6 +1331,14 @@ function injectAutoSynthesizerUI() {
   const accountBtn = panel.querySelector("#accountBtn");
   const accountOverlay = panel.querySelector("#accountOverlay");
   const closeAccountBtn = panel.querySelector("#closeAccountBtn");
+
+  const vsCompareBtn = panel.querySelector("#vsCompareBtn");
+  const vsOverlay = panel.querySelector("#vsOverlay");
+  const closeVsBtn = panel.querySelector("#closeVsBtn");
+
+  const exportBriefBtn = panel.querySelector("#exportBriefBtn");
+  const exportOverlay = panel.querySelector("#exportOverlay");
+  const closeExportBtn = panel.querySelector("#closeExportBtn");
 
   function minimizePanel() {
     panel.classList.add("hidden");
@@ -1337,9 +1363,6 @@ function injectAutoSynthesizerUI() {
     accountOverlay.classList.add("hidden");
   });
 
-  const vsCompareBtn = shadow.getElementById("vsCompareBtn");
-  const vsOverlay = shadow.getElementById("vsOverlay");
-  const closeVsBtn = shadow.getElementById("closeVsBtn");
   if (vsCompareBtn && vsOverlay && closeVsBtn) {
     vsCompareBtn.addEventListener("click", () => {
       vsOverlay.classList.remove("hidden");
@@ -1350,9 +1373,6 @@ function injectAutoSynthesizerUI() {
     });
   }
 
-  const exportBriefBtn = shadow.getElementById("exportBriefBtn");
-  const exportOverlay = shadow.getElementById("exportOverlay");
-  const closeExportBtn = shadow.getElementById("closeExportBtn");
   if (exportBriefBtn && exportOverlay && closeExportBtn) {
     exportBriefBtn.addEventListener("click", () => {
       exportOverlay.classList.remove("hidden");
@@ -1949,8 +1969,9 @@ async function runProductAnalysis(container, shadowRoot) {
           askBtn.disabled = false;
           askBtn.textContent = "Ask";
 
-          if (!res || !res.success) {
-            askResult.innerHTML = `<span style="color:#fb7185;">Failed to get answer: ${res ? res.error : "Service unavailable"}</span>`;
+          if (chrome.runtime.lastError || !res || !res.success) {
+            const err = (res && res.error) || (chrome.runtime.lastError && chrome.runtime.lastError.message) || "Backend server is offline. Run 'source venv/bin/activate && uvicorn app.main:app --reload' in your backend terminal.";
+            askResult.innerHTML = `<span style="color:#fb7185;">Failed to get answer: ${err}</span>`;
             return;
           }
 
