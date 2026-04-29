@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CLI Tool to manage Administrator and User Accounts for Amazon Review Synthesizer.
+CLI Tool to manage Administrator and User Accounts for AZ-Scout.
 
 Usage:
   # List all accounts:
@@ -47,7 +47,7 @@ def list_users():
     print(f"{'ID':<4} {'Role':<8} {'Email':<30} {'Name':<20} {'Created'}")
     print("=" * 75)
     for u in users:
-        role = "ADMIN 👑" if u["is_admin"] else "USER"
+        role = "ADMIN" if u["is_admin"] else "USER"
         created = (u["created_at"] or "")[:10]
         print(f"{u['id']:<4} {role:<8} {u['email']:<30} {u['name']:<20} {created}")
     print("=" * 75 + "\n")
@@ -73,7 +73,7 @@ def create_admin(email: str, password: str, name: str):
         """, (email_clean, name.strip() or "Administrator", pwd_hash, salt))
         conn.commit()
 
-    print(f"✅ Successfully created new Administrator account: {email_clean}")
+    print(f"[OK] Successfully created new Administrator account: {email_clean}")
 
 def promote_user(email: str):
     init_db()
@@ -93,7 +93,7 @@ def promote_user(email: str):
         cursor.execute("UPDATE users SET is_admin = 1 WHERE id = ?;", (user["id"],))
         conn.commit()
 
-    print(f"✅ User '{email_clean}' ({user['name']}) has been promoted to Administrator 👑.")
+    print(f"[OK] User '{email_clean}' ({user['name']}) has been promoted to Administrator.")
 
 def demote_user(email: str):
     init_db()
@@ -116,7 +116,7 @@ def demote_user(email: str):
         cursor.execute("UPDATE users SET is_admin = 0 WHERE id = ?;", (user["id"],))
         conn.commit()
 
-    print(f"✅ Account '{email_clean}' ({user['name']}) has been demoted to regular User.")
+    print(f"[OK] Account '{email_clean}' ({user['name']}) has been demoted to regular User.")
 
 def update_account(email: str, password: str = None, name: str = None, is_admin: bool = None):
     init_db()
@@ -153,10 +153,10 @@ def update_account(email: str, password: str = None, name: str = None, is_admin:
         cursor.execute(query, tuple(params))
         conn.commit()
 
-    print(f"✅ Successfully updated account for '{email_clean}'.")
+    print(f"[OK] Successfully updated account for '{email_clean}'.")
 
 def main():
-    parser = argparse.ArgumentParser(description="Manage Admin and User Accounts for Amazon Review Synthesizer")
+    parser = argparse.ArgumentParser(description="Manage Admin and User Accounts for AZ-Scout")
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
 
     # list

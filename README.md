@@ -1,118 +1,190 @@
-# 🛍️ Amazon Review Synthesizer
+# AZ-Scout
 
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![Chrome Extension](https://img.shields.io/badge/Chrome_Extension-Manifest_V3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)](https://python.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+An AI-powered shopping assistant and Chrome browser extension built with JavaScript, FastAPI, Python, SQLite, and Google Gemini.
 
-An intelligent, AI-powered browser extension and microservice that transforms cluttered, sponsored, and noisy Amazon customer reviews into objective product intelligence. 
+It analyzes verified customer reviews on Amazon product and search pages to calculate an objective reliability score, check product durability, detect hijacked listings, and filter out carrier delays and promotional noise.
 
-In under 2.5 seconds, it filters out logistics complaints and promotional bias, outputting an actionable breakdown: a **Normalized Reliability Score (0–10)**, high-level **Pros & Cons**, and verified **Defect & Highlight Callouts**.
+## Features
 
----
+- Automatic review extraction on Amazon product pages
+- Normalized reliability scoring on a 0 to 10 scale
+- Pros and cons summary
+- Authenticity check and hijacked listing detection
+- Long-term durability and defect rate forecasting
+- Search results buying guide and multi-page recommendations
+- Interactive review Q&A (Ask the Reviews)
+- Head-to-head product comparisons (VS mode)
+- User accounts, saved searches, and price tracking stored in SQLite
 
-## 🎯 The Problem
+## Tech Stack
 
-Online shoppers face decision fatigue and deceptive review signals on major e-commerce platforms:
-- **Review Noise**: Sifting through hundreds of promotional five-star ratings and one-star delivery complaints obscures actual product durability.
-- **Logistics Bias**: Negative reviews often penalize items for carrier delays or crushed outer boxes rather than product defects.
-- **Search Overwhelm**: Comparing multiple candidate listings on a crowded search results page is manual, tedious, and error-prone.
+- JavaScript (Chrome Extension Manifest V3)
+- FastAPI
+- Python 3.9+
+- SQLite
+- Google Gemini API
 
-**Amazon Review Synthesizer** automates review extraction and synthesis, applying strict evaluation guardrails so buyers can validate products in seconds.
+## Requirements
 
----
+Install these before running the project:
 
-## ✨ Features
+- Python 3.9+
+- Google Chrome (or any Chromium-based browser)
+- Git
+- Google Gemini API key
 
-- **⚡ Automatic On-Page Detection**: Sleek, non-intrusive on-page drawer automatically detects Amazon product and search pages—no manual toolbar clicking required.
-- **📊 Normalized Reliability Score**: Evaluates genuine customer satisfaction and defect-free rates on an objective 0.0 to 10.0 scale.
-- **⚖️ Pros & Cons Matrix**: Clean, side-by-side view summarizing functional strengths, material quality, and real-world trade-offs.
-- **🛡️ Intelligent Guardrails**: Disregards shipping delays and carrier issues; prioritizes recurring hardware, battery, or build quality flaws.
-- **🔍 Search Page Buying Guide**: Automatically compares top listings across search queries (e.g., *"mechanical keyboard"*, *"speakers"*), highlighting top-recommended picks with instant buyer verdicts.
-- **🔒 Privacy & Sanitization**: Strips personal identifiable information (PII), tracking URLs, emojis, and marketing noise before analysis.
+## 1. Clone the Project
 
----
-
-## ⚙️ How It Works
-
-```
-[ Amazon Webpage ] ──> [ Content Script ] ──> [ Background Worker ] ──> [ FastAPI Microservice ]
-   (PDP / Search)      (Scrapes & Cleans)     (Bypasses Mixed-CSP)         (Sanitizes & Truncates)
-                                                                                   │
-                                                                                   ▼
-[ On-Page Dark UI ] <─────────────────────────────────────────────────────── [ LLM Synthesis ]
-(Score, Matrix, Bullets)                                                     (Strict JSON Schema)
-```
-
-1. **Client Extraction**: Content scripts extract product titles, verified customer review nodes, star ratings, and metadata from Amazon listings.
-2. **Sanitization**: Backend sanitizers deduplicate repetitive text, redact emails/phone numbers, and normalize whitespace.
-3. **Structured LLM Inference**: An LLM pipeline evaluates inputs under strict system constraints, enforcing a deterministic JSON schema.
-4. **Client Presentation**: Results render instantly in a high-contrast slate dark theme (`#0f172a`) with smooth animations and skeleton loaders.
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- **Python 3.9+**
-- **Google Chrome** (or any Chromium-based browser)
-
-### 1. Backend Service Setup
+Clone the repository:
 
 ```bash
-# Clone the repository
 git clone https://github.com/Divyesh-Challa/amazon-review-synthesizer.git
-cd amazon-review-synthesizer/backend
+cd amazon-review-synthesizer
+```
 
-# Create and activate virtual environment
+## 2. Backend Setup
+
+Open a terminal in the project folder:
+
+```bash
+cd backend
+```
+
+Create a Python virtual environment:
+
+On macOS/Linux:
+```bash
 python3 -m venv venv
 source venv/bin/activate
+```
 
-# Install dependencies
+On Windows:
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+Install the required Python packages:
+
+```bash
 pip install -r requirements.txt
+```
 
-# Configure environment variables
+## 3. Configure Environment Variables
+
+Create a .env file inside the backend directory:
+
+```bash
 cp .env.example .env
+```
 
-# Launch the FastAPI microservice
+Open .env and set your Gemini API key:
+
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+LLM_PROVIDER=gemini
+```
+
+A free API key can be generated at Google AI Studio: https://aistudio.google.com/
+
+## 4. Start the Backend
+
+Make sure your virtual environment is activated.
+
+Run:
+
+```bash
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-The API will be live at `http://127.0.0.1:8000`. Interactive OpenAPI documentation is available at `http://127.0.0.1:8000/docs`.
+The backend API will run at:
 
-### 2. Chrome Extension Installation
+http://127.0.0.1:8000
 
-1. Open Google Chrome and navigate to `chrome://extensions/`.
-2. Toggle on **Developer mode** in the top-right corner.
-3. Click **Load unpacked**.
-4. Select the `extension/` directory from this repository.
-5. The **Review Synthesizer** extension is now active.
+Interactive OpenAPI documentation is available at:
 
----
+http://127.0.0.1:8000/docs
 
-## 💻 Usage
+Keep this terminal running.
 
-- **Product Pages**: Navigate to any Amazon product listing (e.g., `/dp/...`). The synthesizer panel will automatically appear on the right with the reliability score, pros & cons, and review highlights.
-- **Search Pages**: Search for any product category (e.g., *"headphones"* or *"ergonomic chair"*). The extension automatically aggregates top search results into a curated buying guide.
-- **Toolbar Popup**: Click the extension icon in your browser toolbar anytime to inspect or re-trigger synthesis manually.
+## 5. Install the Chrome Extension
 
----
+1. Open Google Chrome and go to:
 
-## 🔧 Configuration
+```text
+chrome://extensions/
+```
 
-All backend parameters can be customized via `.env`:
+2. Toggle on Developer mode in the top right corner.
+3. Click Load unpacked.
+4. Select the extension directory from this repository.
+5. The AZ-Scout extension is now active.
 
-| Parameter | Default | Description |
-| :--- | :--- | :--- |
-| `HOST` | `127.0.0.1` | API host address |
-| `PORT` | `8000` | API port |
-| `LLM_PROVIDER` | `gemini` | Synthesis engine (`gemini` or `mock`) |
-| `GEMINI_API_KEY` | `""` | API key for Gemini inference models |
-| `MAX_REVIEWS` | `15` | Maximum review sample size per listing |
-| `MAX_CHARS_PER_REVIEW` | `600` | Maximum character cap per review |
+## 6. Using the Application
 
----
+1. Open Amazon and navigate to any product listing page.
+2. The AZ-Scout drawer will open on the right side with the reliability score, authenticity check, durability forecast, and pros and cons.
+3. On Amazon search pages (for example, searching "mechanical keyboard"), AZ-Scout aggregates and ranks top products with filters for price and rating.
+4. Click the extension icon in the browser toolbar anytime to inspect or trigger analysis manually.
 
-## 📜 License
+## Project Structure
 
-This project is licensed under the [MIT License](LICENSE).
+```text
+amazon-review-synthesizer/
+├── backend/
+│   ├── app/
+│   │   ├── routes/
+│   │   ├── auth.py
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   ├── main.py
+│   │   ├── schemas.py
+│   │   └── synthesizer.py
+│   ├── data/
+│   │   └── synthesizer.db
+│   ├── requirements.txt
+│   ├── manage_admin.py
+│   ├── .env.example
+│   └── .env
+├── extension/
+│   ├── icons/
+│   ├── background.js
+│   ├── content.js
+│   ├── popup.html
+│   ├── popup.js
+│   ├── popup.css
+│   └── manifest.json
+└── README.md
+```
+
+## Database
+
+The project uses SQLite to store user accounts, favorites, saved searches, and price snapshots. No separate database server is required.
+
+The database file is created automatically when the backend starts:
+
+```text
+backend/data/synthesizer.db
+```
+
+## Troubleshooting
+
+Backend won't start:
+Make sure the virtual environment is activated:
+```bash
+source venv/bin/activate
+```
+Then install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+Invalid API Key:
+Check that your GEMINI_API_KEY is correctly set in backend/.env.
+
+Extension not connecting to backend:
+Make sure the backend terminal is running at http://127.0.0.1:8000. If deployed to cloud (e.g., Render), update API_BASE in extension/background.js to your Render HTTPS URL.
+
+## License
+
+This project is licensed under the MIT License.

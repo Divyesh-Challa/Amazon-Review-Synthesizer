@@ -21,12 +21,12 @@ from app.routes.intelligence_routes import router as intelligence_router
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("amazon_synthesizer")
+logger = logging.getLogger("az_scout")
 
 app = FastAPI(
-    title="Amazon Review Synthesizer API",
+    title="AZ-Scout API",
     version="1.5.0",
-    description="Backend service for synthesizing Amazon reviews, product intelligence, conversational Q&A, and head-to-head comparison."
+    description="Backend service for AZ-Scout: AI shopping intelligence, verified review synthesis, conversational Q&A, and product comparisons."
 )
 
 # Enable CORS for Chrome Extensions and local clients
@@ -54,7 +54,7 @@ async def on_startup():
 async def root():
     return {
         "status": "online",
-        "service": "Amazon Review Synthesizer API",
+        "service": "AZ-Scout API",
         "version": "1.5.0",
         "provider": settings.LLM_PROVIDER
     }

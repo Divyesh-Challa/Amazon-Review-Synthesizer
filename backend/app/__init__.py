@@ -1,1 +1,1 @@
-# Amazon Review Synthesizer Backend Package
+# AZ-Scout Backend Package

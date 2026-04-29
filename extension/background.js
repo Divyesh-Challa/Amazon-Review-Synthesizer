@@ -1,5 +1,5 @@
 /**
- * Amazon Review Synthesizer - Background Service Worker
+ * AZ-Scout - Background Service Worker
  * Handles API communication with local FastAPI backend, user authentication, favorites,
  * saved searches, admin metrics, and tab navigation events.
  */

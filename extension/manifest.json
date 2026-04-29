@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Amazon Review Synthesizer",
+  "name": "AZ-Scout: AI Shopping Intelligence",
   "version": "1.2.0",
-  "description": "Automatically analyzes Amazon product reviews and search results with AI scores, pros/cons, and buying guides.",
+  "description": "AI shopping scout for Amazon. Synthesizes verified reviews, reliability scores, durability forecasts, and authentic product insights.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -29,7 +29,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Amazon Review Synthesizer",
+    "default_title": "AZ-Scout",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
